@@ -186,18 +186,17 @@ int main() {
         if (rightDown) {
             if (placeCooldown <= 0.0f) {
                 if (hit.hit) {
-                    // Only refuse placement when the new block would
-                    // overlap the *core* of the player's body, not just
-                    // graze the edge of their footprint - otherwise
-                    // standing right at the edge of a block (exactly
-                    // where you'd want to place one to extend the floor
-                    // under your own feet) gets rejected even though you
-                    // wouldn't actually end up embedded in it.
-                    const float placementClearance = 0.15f;
+                    // Must match Player's actual collision half-width -
+                    // anything smaller lets a block be placed that the
+                    // player's real hitbox already overlaps, and physics
+                    // only ever stops you moving *into* a new overlap,
+                    // it doesn't push you back out of one that appears
+                    // under/beside you. That's what let placing a block
+                    // "under yourself" leave you stuck in it.
                     glm::vec3 feet = player.feetPosition();
                     bool overlapsPlayer =
-                        hit.placePos.x + 1.0f > feet.x - placementClearance && hit.placePos.x < feet.x + placementClearance &&
-                        hit.placePos.z + 1.0f > feet.z - placementClearance && hit.placePos.z < feet.z + placementClearance &&
+                        hit.placePos.x + 1.0f > feet.x - Player::HalfWidth && hit.placePos.x < feet.x + Player::HalfWidth &&
+                        hit.placePos.z + 1.0f > feet.z - Player::HalfWidth && hit.placePos.z < feet.z + Player::HalfWidth &&
                         hit.placePos.y + 1.0f > feet.y && hit.placePos.y < feet.y + Player::Height;
                     if (!overlapsPlayer) {
                         world.setBlock(hit.placePos.x, hit.placePos.y, hit.placePos.z, hotbar[selected]);

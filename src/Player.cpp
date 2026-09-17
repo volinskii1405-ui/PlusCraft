@@ -108,6 +108,17 @@ void Player::teleport(const glm::vec3& feetPosition) {
 void Player::update(const World& world, const glm::vec3& wishDir, bool jumpPressed, bool sneaking, float dt) {
     sneaking_ = sneaking;
 
+    // Safety net: normal collision only ever stops a *new* move into
+    // solid ground, it can't rescue a position that's already
+    // overlapping (e.g. a block placed under/beside the player). If
+    // that happens, nudge straight up out of it instead of leaving the
+    // player stuck there permanently.
+    int unstuckSteps = 0;
+    while (boxIntersectsSolid(world, position_) && unstuckSteps < World::SizeY) {
+        position_.y += 0.1f;
+        ++unstuckSteps;
+    }
+
     float speed = sneaking ? MoveSpeed * SneakSpeedFactor : MoveSpeed;
     velocity_.x = wishDir.x * speed;
     velocity_.z = wishDir.z * speed;
