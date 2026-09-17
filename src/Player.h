@@ -20,6 +20,10 @@ public:
     glm::vec3 eyePosition() const;
     const glm::vec3& feetPosition() const { return position_; }
 
+    // Resets position and lets the player fall/stand fresh from there
+    // (used by the "R" respawn key).
+    void teleport(const glm::vec3& feetPosition);
+
     static constexpr float HalfWidth = 0.3f;
     static constexpr float Height = 1.8f;
     static constexpr float EyeHeight = 1.62f;
@@ -36,6 +40,7 @@ private:
     bool sneaking_ = false;
 
     static constexpr float MoveSpeed = 5.0f;
+    static constexpr float SneakSpeedFactor = 0.5f;
     static constexpr float JumpSpeed = 8.0f;
     static constexpr float Gravity = 22.0f;
     static constexpr float TerminalVelocity = 30.0f;

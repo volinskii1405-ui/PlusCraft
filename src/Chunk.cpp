@@ -1,5 +1,6 @@
 #include "Chunk.h"
 #include "Noise.h"
+#include "World.h"
 
 #include <cstdlib>
 #include <glm/glm.hpp>
@@ -100,12 +101,15 @@ void Chunk::setBlock(int x, int y, int z, BlockType type) {
     blocks_[index(x, y, z)] = type;
 }
 
-void Chunk::generate(uint32_t seed) {
+void Chunk::generate(uint32_t seed, int worldOffsetX, int worldOffsetZ) {
     std::vector<int> heights(static_cast<size_t>(SizeX) * SizeZ);
 
     for (int z = 0; z < SizeZ; ++z) {
         for (int x = 0; x < SizeX; ++x) {
-            float n = noise::fractal2D(x * 0.07f, z * 0.07f, seed);
+            // Sampled in world-space coordinates so the heightmap is one
+            // continuous field across chunk boundaries, not a repeating
+            // per-chunk pattern.
+            float n = noise::fractal2D((worldOffsetX + x) * 0.07f, (worldOffsetZ + z) * 0.07f, seed);
             int height = 18 + static_cast<int>(n * 16.0f);
             heights[static_cast<size_t>(z) * SizeX + x] = height;
         }
@@ -138,7 +142,7 @@ void Chunk::generate(uint32_t seed) {
             if (height <= 20 || height + 6 >= SizeY) {
                 continue; // no trees on the beach, or too close to the world ceiling
             }
-            if (noise::rand01(x, z, seed + 999) > 0.985f) {
+            if (noise::rand01(worldOffsetX + x, worldOffsetZ + z, seed + 999) > 0.985f) {
                 int trunkTop = height + 3;
                 for (int y = height; y < trunkTop; ++y) {
                     setBlock(x, y, z, BlockType::Wood);
@@ -162,7 +166,7 @@ void Chunk::generate(uint32_t seed) {
     }
 }
 
-void Chunk::rebuildMesh(const TextureAtlas& atlas) {
+void Chunk::rebuildMesh(const TextureAtlas& atlas, const World& world, int worldOffsetX, int worldOffsetZ) {
     std::vector<float> verts;
     verts.reserve(4096);
 
@@ -176,7 +180,12 @@ void Chunk::rebuildMesh(const TextureAtlas& atlas) {
 
                 for (int f = 0; f < 6; ++f) {
                     const Offset& off = kNeighborOffsets[f];
-                    BlockType neighbor = getBlock(x + off.dx, y + off.dy, z + off.dz);
+                    // Always go through World (in world-space coordinates)
+                    // rather than this chunk's own getBlock: at this
+                    // chunk's edges, the neighbor lives in an adjacent
+                    // chunk, and World is the only thing that knows
+                    // about those.
+                    BlockType neighbor = world.getBlock(worldOffsetX + x + off.dx, y + off.dy, worldOffsetZ + z + off.dz);
                     if (!(isTransparent(neighbor) && neighbor != type)) {
                         continue;
                     }
@@ -184,7 +193,7 @@ void Chunk::rebuildMesh(const TextureAtlas& atlas) {
                     Face face = faceFromIndex(f);
                     TextureAtlas::UV uv = atlas.uvFor(type, face);
                     const FaceDef& def = kFaceDefs[f];
-                    glm::vec3 base(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+                    glm::vec3 base(static_cast<float>(worldOffsetX + x), static_cast<float>(y), static_cast<float>(worldOffsetZ + z));
 
                     glm::vec3 quadPos[4];
                     glm::vec2 quadUV[4];

@@ -116,10 +116,11 @@ int main() {
 
     float lastFrame = static_cast<float>(glfwGetTime());
     const float reach = 5.0f;
+    bool prevRDown = false;
 
     std::cout << "PlusCraft - WASD move, mouse look, Space to jump, Left Shift to sneak\n";
     std::cout << "Left click (hold to repeat): break block, Right click (hold to repeat): place block\n";
-    std::cout << "1-6: select block, Esc: quit\n";
+    std::cout << "1-6: select block, R: respawn, Esc: quit\n";
 
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = static_cast<float>(glfwGetTime());
@@ -129,6 +130,12 @@ int main() {
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, true);
         }
+
+        bool rDown = glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS;
+        if (rDown && !prevRDown) {
+            player.teleport(world.spawnPoint());
+        }
+        prevRDown = rDown;
 
         glm::vec3 forwardFlat(camera.front().x, 0.0f, camera.front().z);
         glm::vec3 rightFlat(camera.right().x, 0.0f, camera.right().z);
@@ -179,10 +186,18 @@ int main() {
         if (rightDown) {
             if (placeCooldown <= 0.0f) {
                 if (hit.hit) {
+                    // Only refuse placement when the new block would
+                    // overlap the *core* of the player's body, not just
+                    // graze the edge of their footprint - otherwise
+                    // standing right at the edge of a block (exactly
+                    // where you'd want to place one to extend the floor
+                    // under your own feet) gets rejected even though you
+                    // wouldn't actually end up embedded in it.
+                    const float placementClearance = 0.15f;
                     glm::vec3 feet = player.feetPosition();
                     bool overlapsPlayer =
-                        hit.placePos.x + 1.0f > feet.x - Player::HalfWidth && hit.placePos.x < feet.x + Player::HalfWidth &&
-                        hit.placePos.z + 1.0f > feet.z - Player::HalfWidth && hit.placePos.z < feet.z + Player::HalfWidth &&
+                        hit.placePos.x + 1.0f > feet.x - placementClearance && hit.placePos.x < feet.x + placementClearance &&
+                        hit.placePos.z + 1.0f > feet.z - placementClearance && hit.placePos.z < feet.z + placementClearance &&
                         hit.placePos.y + 1.0f > feet.y && hit.placePos.y < feet.y + Player::Height;
                     if (!overlapsPlayer) {
                         world.setBlock(hit.placePos.x, hit.placePos.y, hit.placePos.z, hotbar[selected]);

@@ -7,8 +7,10 @@
 #include <cstdint>
 #include <vector>
 
-// A single, fixed-size column of blocks with its own GPU mesh. The MVP
-// world is exactly one Chunk (see World).
+class World;
+
+// A single, fixed-size column of blocks with its own GPU mesh. World
+// tiles several of these together into the full playable area.
 class Chunk {
 public:
     static constexpr int SizeX = 32;
@@ -21,15 +23,23 @@ public:
     Chunk(const Chunk&) = delete;
     Chunk& operator=(const Chunk&) = delete;
 
-    void generate(uint32_t seed);
+    // worldOffsetX/Z is this chunk's origin in world-space block
+    // coordinates, so terrain noise (and thus the heightmap) is
+    // continuous across chunk boundaries instead of repeating per chunk.
+    void generate(uint32_t seed, int worldOffsetX, int worldOffsetZ);
 
     BlockType getBlock(int x, int y, int z) const;
     void setBlock(int x, int y, int z, BlockType type);
 
     // Rebuilds the CPU-side face mesh (culling hidden faces) and
-    // re-uploads it to the GPU. Call once after generate(), and again
-    // after any setBlock() that should become visible.
-    void rebuildMesh(const TextureAtlas& atlas);
+    // re-uploads it to the GPU, baking worldOffsetX/Z into the vertex
+    // positions so the mesh renders directly in world space with no
+    // per-chunk model matrix needed. Neighbor lookups at this chunk's
+    // own edges go through `world` (in world-space coordinates) so
+    // faces are culled correctly against whatever chunk is next door.
+    // Call once after generate(), and again after any setBlock() that
+    // should become visible.
+    void rebuildMesh(const TextureAtlas& atlas, const World& world, int worldOffsetX, int worldOffsetZ);
     void render() const;
 
     static bool inBounds(int x, int y, int z);

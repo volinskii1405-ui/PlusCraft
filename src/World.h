@@ -5,13 +5,21 @@
 #include "Shader.h"
 #include "Texture.h"
 
+#include <array>
 #include <glm/glm.hpp>
+#include <memory>
 
-// The MVP world is a single generated Chunk plus the texture atlas it's
-// rendered with. A multi-chunk world would wrap several Chunks behind
-// the same getBlock/setBlock/raycast interface.
+// The world is a fixed ChunksX x ChunksZ grid of Chunks (currently
+// 2x2 = 4), tiled seamlessly: terrain noise and face culling both go
+// through world-space coordinates, so nothing seams at chunk borders.
 class World {
 public:
+    static constexpr int ChunksX = 2;
+    static constexpr int ChunksZ = 2;
+    static constexpr int SizeX = Chunk::SizeX * ChunksX;
+    static constexpr int SizeY = Chunk::SizeY;
+    static constexpr int SizeZ = Chunk::SizeZ * ChunksZ;
+
     struct RaycastHit {
         bool hit = false;
         glm::ivec3 blockPos{0};  // the solid block that was hit
@@ -31,6 +39,10 @@ public:
     const TextureAtlas& atlas() const { return atlas_; }
 
 private:
-    Chunk chunk_;
+    Chunk& chunkAt(int cx, int cz) { return *chunks_[static_cast<size_t>(cz) * ChunksX + cx]; }
+    const Chunk& chunkAt(int cx, int cz) const { return *chunks_[static_cast<size_t>(cz) * ChunksX + cx]; }
+    void rebuildChunkMesh(int cx, int cz);
+
+    std::array<std::unique_ptr<Chunk>, ChunksX * ChunksZ> chunks_;
     TextureAtlas atlas_;
 };

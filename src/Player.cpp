@@ -99,11 +99,18 @@ void Player::moveAxis(const World& world, int axis, float delta, bool preventFal
     velocity_[axis] = 0.0f;
 }
 
+void Player::teleport(const glm::vec3& feetPosition) {
+    position_ = feetPosition;
+    velocity_ = glm::vec3(0.0f);
+    onGround_ = false;
+}
+
 void Player::update(const World& world, const glm::vec3& wishDir, bool jumpPressed, bool sneaking, float dt) {
     sneaking_ = sneaking;
 
-    velocity_.x = wishDir.x * MoveSpeed;
-    velocity_.z = wishDir.z * MoveSpeed;
+    float speed = sneaking ? MoveSpeed * SneakSpeedFactor : MoveSpeed;
+    velocity_.x = wishDir.x * speed;
+    velocity_.z = wishDir.z * speed;
 
     velocity_.y -= Gravity * dt;
     if (velocity_.y < -TerminalVelocity) {

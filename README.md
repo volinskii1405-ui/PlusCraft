@@ -1,20 +1,22 @@
 # PlusCraft
 
 A minimal Minecraft-style voxel sandbox written from scratch in C++17 and
-OpenGL 3.3 core. This is a first, deliberately small MVP: a single
-procedurally generated chunk of landscape you can walk around, look at,
-and dig into.
+OpenGL 3.3 core. This is a first, deliberately small MVP: a small
+procedurally generated world you can walk around, look at, and dig
+into.
 
 ## What's here
 
 - A first-person walking camera (WASD + mouse look, Space to jump,
-  Left Shift to sneak) with gravity and AABB collision against the
-  terrain - you walk on the ground and can't clip through blocks.
-  Sneaking lowers your eye height and, while on ground, refuses to
-  walk you off an edge with nothing underneath.
-- One 32x48x32 chunk of terrain generated from a small value-noise
-  heightmap, with grass/dirt/stone layers, sandy beaches at low
-  elevation, and a scattering of trees.
+  Left Shift to sneak - at half speed) with gravity and AABB collision
+  against the terrain - you walk on the ground and can't clip through
+  blocks. Sneaking also lowers your eye height and, while on ground,
+  refuses to walk you off an edge with nothing underneath. `R`
+  teleports you back to the spawn point.
+- A 2x2 grid of 32x48x32 chunks (64x48x64 blocks total) generated from
+  one continuous value-noise heightmap, with grass/dirt/stone layers,
+  sandy beaches at low elevation, and a scattering of trees; chunks
+  are meshed against each other so there's no seam at the borders.
 - Textured cubes: an 8-tile texture atlas (grass, dirt, stone, sand,
   wood, leaves) is generated procedurally at startup, so the repo ships
   with zero external image assets.
@@ -67,7 +69,8 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
 | `W` `A` `S` `D`         | Move                         |
 | Mouse                  | Look around                  |
 | `Space`                | Jump                         |
-| `Left Shift`           | Sneak (lower + can't fall off edges) |
+| `Left Shift`           | Sneak (half speed, lower, can't fall off edges) |
+| `R`                    | Respawn                      |
 | Left click (hold to repeat) | Break the targeted block |
 | Right click (hold to repeat) | Place the selected block |
 | `1`-`6`                | Select block to place        |
@@ -105,11 +108,17 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   interleaved vertex buffer in `rebuildMesh()`: for every solid block,
   each of its 6 faces is only emitted if the neighboring block in that
   direction is transparent (air, or a different block's leaves).
-- **`World`** - wraps the one `Chunk` + `TextureAtlas` behind a
-  `getBlock`/`setBlock`/`raycast`/`render` interface, so a future
-  multi-chunk world doesn't have to change `main.cpp`. `raycast()`
-  marches in small steps along the camera's look vector to find the
-  targeted block and the empty cell just before it (for placement).
+  `generate()` and `rebuildMesh()` both work in world-space coordinates
+  (given the chunk's own offset), so terrain and face culling are both
+  continuous across chunk borders instead of repeating or seaming.
+- **`World`** - owns a `ChunksX x ChunksZ` grid of `Chunk`s (currently
+  2x2) behind a `getBlock`/`setBlock`/`raycast`/`render` interface that
+  doesn't care how many chunks there are. `getBlock`/`setBlock`
+  translate a world coordinate to (chunk, local coordinate); `setBlock`
+  also rebuilds any neighboring chunk whose shared faces the edit could
+  have changed. `raycast()` marches in small steps along the camera's
+  look vector to find the targeted block and the empty cell just before
+  it (for placement).
 - **`Highlight`** - draws a blinking wireframe cube (12 `GL_LINES`
   edges, its own unlit shader) around the targeted block, slightly
   larger than a unit cube so it doesn't z-fight with the block's own
