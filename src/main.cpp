@@ -5,6 +5,7 @@
 
 #include "Block.h"
 #include "Camera.h"
+#include "Highlight.h"
 #include "Player.h"
 #include "Shader.h"
 #include "Shaders.h"
@@ -96,6 +97,7 @@ int main() {
     glfwSetWindowUserPointer(window, &camera);
 
     Ui ui;
+    Highlight highlight;
 
     const std::array<BlockType, 6> hotbar = {
         BlockType::Dirt, BlockType::Stone, BlockType::Sand,
@@ -113,9 +115,9 @@ int main() {
     float placeCooldown = 0.0f;
 
     float lastFrame = static_cast<float>(glfwGetTime());
-    const float reach = 6.0f;
+    const float reach = 5.0f;
 
-    std::cout << "PlusCraft - WASD move, mouse look, Space to jump\n";
+    std::cout << "PlusCraft - WASD move, mouse look, Space to jump, Left Shift to sneak\n";
     std::cout << "Left click (hold to repeat): break block, Right click (hold to repeat): place block\n";
     std::cout << "1-6: select block, Esc: quit\n";
 
@@ -141,7 +143,8 @@ int main() {
         if (glm::length(wishDir) > 1e-4f) wishDir = glm::normalize(wishDir);
 
         bool jumpPressed = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
-        player.update(world, wishDir, jumpPressed, deltaTime);
+        bool sneaking = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
+        player.update(world, wishDir, jumpPressed, sneaking, deltaTime);
         camera.setPosition(player.eyePosition());
 
         for (int i = 0; i < static_cast<int>(hotbar.size()); ++i) {
@@ -203,17 +206,14 @@ int main() {
 
         world.render(blockShader);
 
-        glDisable(GL_DEPTH_TEST);
-        ui.resize(gWindowWidth, gWindowHeight);
-
-        glm::vec4 crosshairColor;
         if (hit.hit) {
             float blink = 0.55f + 0.45f * std::sin(currentFrame * 12.0f);
-            crosshairColor = glm::vec4(blink, blink, blink, 1.0f);
-        } else {
-            crosshairColor = glm::vec4(0.8f, 0.8f, 0.8f, 1.0f);
+            highlight.draw(view, projection, hit.blockPos, glm::vec4(blink, blink, blink, 1.0f));
         }
-        ui.drawCrosshair(crosshairColor);
+
+        glDisable(GL_DEPTH_TEST);
+        ui.resize(gWindowWidth, gWindowHeight);
+        ui.drawCrosshair(glm::vec4(0.9f, 0.9f, 0.9f, 1.0f));
 
         TextureAtlas::UV iconUv = world.atlas().uvFor(hotbar[selected], Face::PosX);
         const float iconSize = 48.0f;

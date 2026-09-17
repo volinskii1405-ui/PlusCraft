@@ -81,3 +81,27 @@ void main() {
     }
 }
 )glsl";
+
+// Unlit wireframe cube outline drawn around the targeted block.
+inline const char* kHighlightVertexShader = R"glsl(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+
+uniform mat4 uView;
+uniform mat4 uProjection;
+
+void main() {
+    gl_Position = uProjection * uView * vec4(aPos, 1.0);
+}
+)glsl";
+
+inline const char* kHighlightFragmentShader = R"glsl(
+#version 330 core
+out vec4 FragColor;
+
+uniform vec4 uColor;
+
+void main() {
+    FragColor = uColor;
+}
+)glsl";

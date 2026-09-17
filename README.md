@@ -7,9 +7,11 @@ and dig into.
 
 ## What's here
 
-- A first-person walking camera (WASD + mouse look, Space to jump)
-  with gravity and AABB collision against the terrain - you walk on
-  the ground and can't clip through blocks.
+- A first-person walking camera (WASD + mouse look, Space to jump,
+  Left Shift to sneak) with gravity and AABB collision against the
+  terrain - you walk on the ground and can't clip through blocks.
+  Sneaking lowers your eye height and, while on ground, refuses to
+  walk you off an edge with nothing underneath.
 - One 32x48x32 chunk of terrain generated from a small value-noise
   heightmap, with grass/dirt/stone layers, sandy beaches at low
   elevation, and a scattering of trees.
@@ -20,9 +22,10 @@ and dig into.
   click places the currently selected block against it; hold either
   button down to repeat. Keys `1`-`6` switch the selected block (dirt,
   stone, sand, wood, leaves, grass).
-- A crosshair at screen center that blinks white while it's over a
-  block within reach, and a small icon in the bottom-left corner
-  showing the currently selected block.
+- A static crosshair at screen center; whatever block it's over
+  (within a 5-block reach) gets a blinking white wireframe outline.
+  A small icon in the bottom-left corner shows the currently selected
+  block.
 - Face-culled meshing: only the faces touching air (or, for leaves,
   touching something other than more leaves) are actually drawn.
 
@@ -64,6 +67,7 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
 | `W` `A` `S` `D`         | Move                         |
 | Mouse                  | Look around                  |
 | `Space`                | Jump                         |
+| `Left Shift`           | Sneak (lower + can't fall off edges) |
 | Left click (hold to repeat) | Break the targeted block |
 | Right click (hold to repeat) | Place the selected block |
 | `1`-`6`                | Select block to place        |
@@ -85,9 +89,12 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   `Player` each frame.
 - **`Player`** - axis-separated AABB physics: gravity, jumping, and
   collision against solid blocks. Each frame it moves on X, then Z,
-  then Y, and reverts+zeroes the velocity on whichever axis' move
-  would intersect a solid block (landing on Y while falling also sets
-  "on ground", which is what allows the next jump).
+  then Y; when a move would intersect a solid block (or, while
+  sneaking and on ground, would leave no block underneath), it
+  binary-searches how far along that step it can actually go, so it
+  lands flush against the surface or edge rather than stopping short
+  or clipping in (landing on Y while falling also sets "on ground",
+  which is what allows the next jump).
 - **`TextureAtlas`** - generates an 8-tile 128x16 RGBA texture in
   memory on startup. Each tile is filled with a base color plus
   per-pixel hash noise so it reads as "textured" instead of flat; the
@@ -103,16 +110,21 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   multi-chunk world doesn't have to change `main.cpp`. `raycast()`
   marches in small steps along the camera's look vector to find the
   targeted block and the empty cell just before it (for placement).
+- **`Highlight`** - draws a blinking wireframe cube (12 `GL_LINES`
+  edges, its own unlit shader) around the targeted block, slightly
+  larger than a unit cube so it doesn't z-fight with the block's own
+  faces. Drawn with the same view/projection as the world, before the
+  UI pass turns depth testing off.
 - **`Ui`** - a tiny 2D overlay (its own shader + one dynamic quad
   buffer, drawn with depth testing off after the 3D scene): the
   crosshair is two rectangles at screen center, and the hotbar icon is
   a textured quad sampling the block's side tile straight out of the
   atlas.
 - **`main.cpp`** - GLFW window/input glue: builds the shader, world,
-  player, camera and UI, then each frame turns WASD into a wish
-  direction, updates the player's physics, copies its eye position
-  into the camera, raycasts once (reused for break/place and for the
-  crosshair's blink), and draws.
+  player, camera, UI and highlight, then each frame turns WASD into a
+  wish direction, updates the player's physics, copies its eye
+  position into the camera, raycasts once (reused for break/place and
+  for the block highlight), and draws.
 
 ## License
 

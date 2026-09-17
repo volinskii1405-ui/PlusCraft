@@ -12,7 +12,10 @@ public:
 
     // wishDir is a normalized (or zero) horizontal direction in world
     // space; jumpPressed only triggers a jump while standing on ground.
-    void update(const World& world, const glm::vec3& wishDir, bool jumpPressed, float dt);
+    // sneaking lowers the eye height and, while already on ground,
+    // refuses horizontal movement that would walk the player off an
+    // edge with nothing underneath.
+    void update(const World& world, const glm::vec3& wishDir, bool jumpPressed, bool sneaking, float dt);
 
     glm::vec3 eyePosition() const;
     const glm::vec3& feetPosition() const { return position_; }
@@ -20,14 +23,17 @@ public:
     static constexpr float HalfWidth = 0.3f;
     static constexpr float Height = 1.8f;
     static constexpr float EyeHeight = 1.62f;
+    static constexpr float CrouchEyeHeight = 1.35f;
 
 private:
-    void moveAxis(const World& world, int axis, float delta);
+    void moveAxis(const World& world, int axis, float delta, bool preventFallOff);
     bool boxIntersectsSolid(const World& world, const glm::vec3& feet) const;
+    bool hasSupportAt(const World& world, const glm::vec3& feet) const;
 
     glm::vec3 position_; // feet, base center
     glm::vec3 velocity_{0.0f};
     bool onGround_ = false;
+    bool sneaking_ = false;
 
     static constexpr float MoveSpeed = 5.0f;
     static constexpr float JumpSpeed = 8.0f;
