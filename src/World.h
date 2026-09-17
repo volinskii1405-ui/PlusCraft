@@ -28,6 +28,7 @@ public:
     void render(const Shader& shader) const;
 
     glm::vec3 spawnPoint() const;
+    const TextureAtlas& atlas() const { return atlas_; }
 
 private:
     Chunk chunk_;

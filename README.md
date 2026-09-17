@@ -17,8 +17,12 @@ and dig into.
   wood, leaves) is generated procedurally at startup, so the repo ships
   with zero external image assets.
 - Break/place: left click removes the block you're looking at, right
-  click places the currently selected block against it. Keys `1`-`6`
-  switch the selected block (dirt, stone, sand, wood, leaves, grass).
+  click places the currently selected block against it; hold either
+  button down to repeat. Keys `1`-`6` switch the selected block (dirt,
+  stone, sand, wood, leaves, grass).
+- A crosshair at screen center that blinks white while it's over a
+  block within reach, and a small icon in the bottom-left corner
+  showing the currently selected block.
 - Face-culled meshing: only the faces touching air (or, for leaves,
   touching something other than more leaves) are actually drawn.
 
@@ -60,8 +64,8 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
 | `W` `A` `S` `D`         | Move                         |
 | Mouse                  | Look around                  |
 | `Space`                | Jump                         |
-| Left click             | Break the targeted block     |
-| Right click            | Place the selected block     |
+| Left click (hold to repeat) | Break the targeted block |
+| Right click (hold to repeat) | Place the selected block |
 | `1`-`6`                | Select block to place        |
 | `Esc`                  | Quit                         |
 
@@ -99,10 +103,16 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   multi-chunk world doesn't have to change `main.cpp`. `raycast()`
   marches in small steps along the camera's look vector to find the
   targeted block and the empty cell just before it (for placement).
+- **`Ui`** - a tiny 2D overlay (its own shader + one dynamic quad
+  buffer, drawn with depth testing off after the 3D scene): the
+  crosshair is two rectangles at screen center, and the hotbar icon is
+  a textured quad sampling the block's side tile straight out of the
+  atlas.
 - **`main.cpp`** - GLFW window/input glue: builds the shader, world,
-  player and camera, then each frame turns WASD into a wish direction,
-  updates the player's physics, copies its eye position into the
-  camera, does the two raycasts on a fresh left/right click, and draws.
+  player, camera and UI, then each frame turns WASD into a wish
+  direction, updates the player's physics, copies its eye position
+  into the camera, raycasts once (reused for break/place and for the
+  crosshair's blink), and draws.
 
 ## License
 

@@ -46,3 +46,38 @@ void main() {
     FragColor = vec4(texColor.rgb * light, texColor.a);
 }
 )glsl";
+
+// 2D screen-space overlay (crosshair + selected-block icon).
+inline const char* kUiVertexShader = R"glsl(
+#version 330 core
+layout (location = 0) in vec2 aPos;
+layout (location = 1) in vec2 aUV;
+
+out vec2 vUV;
+
+uniform mat4 uProjection;
+
+void main() {
+    gl_Position = uProjection * vec4(aPos, 0.0, 1.0);
+    vUV = aUV;
+}
+)glsl";
+
+inline const char* kUiFragmentShader = R"glsl(
+#version 330 core
+in vec2 vUV;
+
+out vec4 FragColor;
+
+uniform vec4 uColor;
+uniform int uUseTexture;
+uniform sampler2D uTex;
+
+void main() {
+    if (uUseTexture == 1) {
+        FragColor = texture(uTex, vUV) * uColor;
+    } else {
+        FragColor = uColor;
+    }
+}
+)glsl";

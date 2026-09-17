@@ -38,6 +38,7 @@ PFNGLUNIFORMMATRIX4FVPROC glUniformMatrix4fv = nullptr;
 PFNGLUNIFORM1IPROC glUniform1i = nullptr;
 PFNGLUNIFORM1FPROC glUniform1f = nullptr;
 PFNGLUNIFORM3FVPROC glUniform3fv = nullptr;
+PFNGLUNIFORM4FVPROC glUniform4fv = nullptr;
 
 #ifndef GL_VERSION_1_3
 PFNGLACTIVETEXTUREPROC glActiveTexture = nullptr;
@@ -95,6 +96,7 @@ bool glCore33Init() {
     ok &= load(glUniform1i, "glUniform1i");
     ok &= load(glUniform1f, "glUniform1f");
     ok &= load(glUniform3fv, "glUniform3fv");
+    ok &= load(glUniform4fv, "glUniform4fv");
 
 #ifndef GL_VERSION_1_3
     ok &= load(glActiveTexture, "glActiveTexture");

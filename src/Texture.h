@@ -19,6 +19,7 @@ public:
     TextureAtlas& operator=(const TextureAtlas&) = delete;
 
     void bind(GLenum unit = GL_TEXTURE0) const;
+    GLuint id() const { return textureId_; }
 
     struct UV {
         float u0, v0, u1, v1;

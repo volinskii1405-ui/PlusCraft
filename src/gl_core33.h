@@ -79,6 +79,7 @@ typedef void(APIENTRY* PFNGLUNIFORMMATRIX4FVPROC)(GLint location, GLsizei count,
 typedef void(APIENTRY* PFNGLUNIFORM1IPROC)(GLint location, GLint v0);
 typedef void(APIENTRY* PFNGLUNIFORM1FPROC)(GLint location, GLfloat v0);
 typedef void(APIENTRY* PFNGLUNIFORM3FVPROC)(GLint location, GLsizei count, const GLfloat* value);
+typedef void(APIENTRY* PFNGLUNIFORM4FVPROC)(GLint location, GLsizei count, const GLfloat* value);
 
 typedef void(APIENTRY* PFNGLGENERATEMIPMAPPROC)(GLenum target);
 
@@ -126,6 +127,7 @@ extern PFNGLUNIFORMMATRIX4FVPROC glUniformMatrix4fv;
 extern PFNGLUNIFORM1IPROC glUniform1i;
 extern PFNGLUNIFORM1FPROC glUniform1f;
 extern PFNGLUNIFORM3FVPROC glUniform3fv;
+extern PFNGLUNIFORM4FVPROC glUniform4fv;
 
 extern PFNGLGENERATEMIPMAPPROC glGenerateMipmap;
 

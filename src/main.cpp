@@ -8,11 +8,13 @@
 #include "Player.h"
 #include "Shader.h"
 #include "Shaders.h"
+#include "Ui.h"
 #include "World.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <iostream>
 
 namespace {
@@ -83,7 +85,6 @@ int main() {
         return 1;
     }
 
-    glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glClearColor(0.53f, 0.80f, 0.92f, 1.0f);
 
@@ -94,6 +95,8 @@ int main() {
     Camera camera(player.eyePosition());
     glfwSetWindowUserPointer(window, &camera);
 
+    Ui ui;
+
     const std::array<BlockType, 6> hotbar = {
         BlockType::Dirt, BlockType::Stone, BlockType::Sand,
         BlockType::Wood, BlockType::Leaves, BlockType::Grass,
@@ -101,13 +104,20 @@ int main() {
     int selected = 1; // Stone
     int lastSelected = -1;
 
-    bool prevLeftDown = false;
-    bool prevRightDown = false;
+    // Holding a mouse button repeats the action every breakInterval /
+    // placeInterval seconds; a fresh press always fires immediately
+    // (cooldown starts at 0 and is reset to 0 on release).
+    const float breakInterval = 0.2f;
+    const float placeInterval = 0.25f;
+    float breakCooldown = 0.0f;
+    float placeCooldown = 0.0f;
+
     float lastFrame = static_cast<float>(glfwGetTime());
     const float reach = 6.0f;
 
     std::cout << "PlusCraft - WASD move, mouse look, Space to jump\n";
-    std::cout << "Left click: break block, Right click: place block, 1-6: select block, Esc: quit\n";
+    std::cout << "Left click (hold to repeat): break block, Right click (hold to repeat): place block\n";
+    std::cout << "1-6: select block, Esc: quit\n";
 
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = static_cast<float>(glfwGetTime());
@@ -144,33 +154,46 @@ int main() {
             lastSelected = selected;
         }
 
+        World::RaycastHit hit = world.raycast(camera.position(), camera.front(), reach);
+
         bool leftDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
         bool rightDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
 
-        if (leftDown && !prevLeftDown) {
-            World::RaycastHit hit = world.raycast(camera.position(), camera.front(), reach);
-            if (hit.hit) {
-                world.setBlock(hit.blockPos.x, hit.blockPos.y, hit.blockPos.z, BlockType::Air);
-            }
-        }
-        if (rightDown && !prevRightDown) {
-            World::RaycastHit hit = world.raycast(camera.position(), camera.front(), reach);
-            if (hit.hit) {
-                glm::vec3 feet = player.feetPosition();
-                bool overlapsPlayer =
-                    hit.placePos.x + 1.0f > feet.x - Player::HalfWidth && hit.placePos.x < feet.x + Player::HalfWidth &&
-                    hit.placePos.z + 1.0f > feet.z - Player::HalfWidth && hit.placePos.z < feet.z + Player::HalfWidth &&
-                    hit.placePos.y + 1.0f > feet.y && hit.placePos.y < feet.y + Player::Height;
-                if (!overlapsPlayer) {
-                    world.setBlock(hit.placePos.x, hit.placePos.y, hit.placePos.z, hotbar[selected]);
+        breakCooldown -= deltaTime;
+        placeCooldown -= deltaTime;
+
+        if (leftDown) {
+            if (breakCooldown <= 0.0f) {
+                if (hit.hit) {
+                    world.setBlock(hit.blockPos.x, hit.blockPos.y, hit.blockPos.z, BlockType::Air);
                 }
+                breakCooldown = breakInterval;
             }
+        } else {
+            breakCooldown = 0.0f;
         }
-        prevLeftDown = leftDown;
-        prevRightDown = rightDown;
+
+        if (rightDown) {
+            if (placeCooldown <= 0.0f) {
+                if (hit.hit) {
+                    glm::vec3 feet = player.feetPosition();
+                    bool overlapsPlayer =
+                        hit.placePos.x + 1.0f > feet.x - Player::HalfWidth && hit.placePos.x < feet.x + Player::HalfWidth &&
+                        hit.placePos.z + 1.0f > feet.z - Player::HalfWidth && hit.placePos.z < feet.z + Player::HalfWidth &&
+                        hit.placePos.y + 1.0f > feet.y && hit.placePos.y < feet.y + Player::Height;
+                    if (!overlapsPlayer) {
+                        world.setBlock(hit.placePos.x, hit.placePos.y, hit.placePos.z, hotbar[selected]);
+                    }
+                }
+                placeCooldown = placeInterval;
+            }
+        } else {
+            placeCooldown = 0.0f;
+        }
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        glEnable(GL_DEPTH_TEST);
         blockShader.use();
         glm::mat4 view = camera.getViewMatrix();
         float aspect = gWindowHeight > 0 ? static_cast<float>(gWindowWidth) / static_cast<float>(gWindowHeight) : 1.0f;
@@ -179,6 +202,24 @@ int main() {
         blockShader.setMat4("uProjection", projection);
 
         world.render(blockShader);
+
+        glDisable(GL_DEPTH_TEST);
+        ui.resize(gWindowWidth, gWindowHeight);
+
+        glm::vec4 crosshairColor;
+        if (hit.hit) {
+            float blink = 0.55f + 0.45f * std::sin(currentFrame * 12.0f);
+            crosshairColor = glm::vec4(blink, blink, blink, 1.0f);
+        } else {
+            crosshairColor = glm::vec4(0.8f, 0.8f, 0.8f, 1.0f);
+        }
+        ui.drawCrosshair(crosshairColor);
+
+        TextureAtlas::UV iconUv = world.atlas().uvFor(hotbar[selected], Face::PosX);
+        const float iconSize = 48.0f;
+        const float iconMargin = 16.0f;
+        ui.drawIcon(iconMargin, gWindowHeight - iconMargin - iconSize, iconSize, world.atlas().id(),
+                    iconUv.u0, iconUv.v0, iconUv.u1, iconUv.v1);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
