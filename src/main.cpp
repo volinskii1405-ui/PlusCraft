@@ -5,11 +5,13 @@
 
 #include "Block.h"
 #include "Camera.h"
+#include "Player.h"
 #include "Shader.h"
 #include "Shaders.h"
 #include "World.h"
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
 #include <array>
 #include <iostream>
 
@@ -88,7 +90,8 @@ int main() {
     Shader blockShader(kBlockVertexShader, kBlockFragmentShader);
     World world(1337u);
 
-    Camera camera(world.spawnPoint());
+    Player player(world.spawnPoint());
+    Camera camera(player.eyePosition());
     glfwSetWindowUserPointer(window, &camera);
 
     const std::array<BlockType, 6> hotbar = {
@@ -103,24 +106,33 @@ int main() {
     float lastFrame = static_cast<float>(glfwGetTime());
     const float reach = 6.0f;
 
-    std::cout << "PlusCraft - WASD move, mouse look, Space/Shift fly up/down\n";
+    std::cout << "PlusCraft - WASD move, mouse look, Space to jump\n";
     std::cout << "Left click: break block, Right click: place block, 1-6: select block, Esc: quit\n";
 
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = static_cast<float>(glfwGetTime());
-        float deltaTime = currentFrame - lastFrame;
+        float deltaTime = std::min(currentFrame - lastFrame, 0.05f); // clamp so a stall can't blow past a block in one physics step
         lastFrame = currentFrame;
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, true);
         }
 
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) camera.processKeyboard(CameraMove::Forward, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) camera.processKeyboard(CameraMove::Backward, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) camera.processKeyboard(CameraMove::Left, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) camera.processKeyboard(CameraMove::Right, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) camera.processKeyboard(CameraMove::Up, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) camera.processKeyboard(CameraMove::Down, deltaTime);
+        glm::vec3 forwardFlat(camera.front().x, 0.0f, camera.front().z);
+        glm::vec3 rightFlat(camera.right().x, 0.0f, camera.right().z);
+        if (glm::length(forwardFlat) > 1e-4f) forwardFlat = glm::normalize(forwardFlat);
+        if (glm::length(rightFlat) > 1e-4f) rightFlat = glm::normalize(rightFlat);
+
+        glm::vec3 wishDir(0.0f);
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) wishDir += forwardFlat;
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) wishDir -= forwardFlat;
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) wishDir += rightFlat;
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) wishDir -= rightFlat;
+        if (glm::length(wishDir) > 1e-4f) wishDir = glm::normalize(wishDir);
+
+        bool jumpPressed = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+        player.update(world, wishDir, jumpPressed, deltaTime);
+        camera.setPosition(player.eyePosition());
 
         for (int i = 0; i < static_cast<int>(hotbar.size()); ++i) {
             if (glfwGetKey(window, GLFW_KEY_1 + i) == GLFW_PRESS) {
@@ -144,7 +156,14 @@ int main() {
         if (rightDown && !prevRightDown) {
             World::RaycastHit hit = world.raycast(camera.position(), camera.front(), reach);
             if (hit.hit) {
-                world.setBlock(hit.placePos.x, hit.placePos.y, hit.placePos.z, hotbar[selected]);
+                glm::vec3 feet = player.feetPosition();
+                bool overlapsPlayer =
+                    hit.placePos.x + 1.0f > feet.x - Player::HalfWidth && hit.placePos.x < feet.x + Player::HalfWidth &&
+                    hit.placePos.z + 1.0f > feet.z - Player::HalfWidth && hit.placePos.z < feet.z + Player::HalfWidth &&
+                    hit.placePos.y + 1.0f > feet.y && hit.placePos.y < feet.y + Player::Height;
+                if (!overlapsPlayer) {
+                    world.setBlock(hit.placePos.x, hit.placePos.y, hit.placePos.z, hotbar[selected]);
+                }
             }
         }
         prevLeftDown = leftDown;

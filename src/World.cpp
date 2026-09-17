@@ -50,7 +50,7 @@ glm::vec3 World::spawnPoint() const {
     int cz = Chunk::SizeZ / 2;
     for (int y = Chunk::SizeY - 1; y >= 0; --y) {
         if (!isAir(getBlock(cx, y, cz))) {
-            return glm::vec3(cx + 0.5f, y + 2.0f, cz + 0.5f);
+            return glm::vec3(cx + 0.5f, y + 1.0f, cz + 0.5f); // feet resting on top of that block
         }
     }
     return glm::vec3(cx + 0.5f, Chunk::SizeY / 2.0f, cz + 0.5f);

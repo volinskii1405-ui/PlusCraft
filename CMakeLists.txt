@@ -41,6 +41,7 @@ add_executable(PlusCraft
     src/Texture.cpp
     src/Chunk.cpp
     src/World.cpp
+    src/Player.cpp
 )
 
 target_link_libraries(PlusCraft PRIVATE glfw OpenGL::GL glm::glm)

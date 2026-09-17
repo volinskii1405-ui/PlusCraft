@@ -53,10 +53,15 @@ void paintTile(std::vector<uint8_t>& pixels, int atlasW, int tile, RGB base, flo
 void paintGrassSide(std::vector<uint8_t>& pixels, int atlasW, uint32_t seed) {
     const RGB grassColor{92, 150, 63};
     const RGB dirtColor{121, 85, 58};
+    // Pixel row y is uploaded as texture row y, which is v = y / TileSize
+    // in our UV mapping (local block y=0 -> v=0 -> row 0). So the grass
+    // strip needs to live in the *high* rows to end up at the top (v=1)
+    // of the side face, not the low ones.
     for (int y = 0; y < TextureAtlas::TileSize; ++y) {
         for (int x = 0; x < TextureAtlas::TileSize; ++x) {
             float n = noise::rand01(x, y, seed);
-            RGB c = (y <= 3) ? shade(grassColor, n, 0.18f) : shade(dirtColor, n, 0.18f);
+            bool grassRow = y >= TextureAtlas::TileSize - 4;
+            RGB c = grassRow ? shade(grassColor, n, 0.18f) : shade(dirtColor, n, 0.18f);
             putPixel(pixels, atlasW, TileGrassSide * TextureAtlas::TileSize + x, y, c, 255);
         }
     }

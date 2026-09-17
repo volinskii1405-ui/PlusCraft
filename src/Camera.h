@@ -2,29 +2,22 @@
 
 #include <glm/glm.hpp>
 
-enum class CameraMove {
-    Forward,
-    Backward,
-    Left,
-    Right,
-    Up,
-    Down,
-};
-
-// Free-fly first-person camera (creative mode: no gravity, no collision).
+// Look direction and view matrix only. Movement and collision are
+// Player's job; main.cpp copies Player::eyePosition() into this each
+// frame via setPosition().
 class Camera {
 public:
     explicit Camera(glm::vec3 position);
 
     glm::mat4 getViewMatrix() const;
 
-    void processKeyboard(CameraMove direction, float deltaTime);
     void processMouseMovement(float xOffset, float yOffset);
+    void setPosition(const glm::vec3& position) { position_ = position; }
 
     const glm::vec3& position() const { return position_; }
     const glm::vec3& front() const { return front_; }
+    const glm::vec3& right() const { return right_; }
 
-    float moveSpeed = 8.0f;
     float mouseSensitivity = 0.1f;
 
 private:

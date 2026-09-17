@@ -12,30 +12,6 @@ glm::mat4 Camera::getViewMatrix() const {
     return glm::lookAt(position_, position_ + front_, up_);
 }
 
-void Camera::processKeyboard(CameraMove direction, float deltaTime) {
-    float velocity = moveSpeed * deltaTime;
-    switch (direction) {
-        case CameraMove::Forward:
-            position_ += front_ * velocity;
-            break;
-        case CameraMove::Backward:
-            position_ -= front_ * velocity;
-            break;
-        case CameraMove::Left:
-            position_ -= right_ * velocity;
-            break;
-        case CameraMove::Right:
-            position_ += right_ * velocity;
-            break;
-        case CameraMove::Up:
-            position_ += worldUp_ * velocity;
-            break;
-        case CameraMove::Down:
-            position_ -= worldUp_ * velocity;
-            break;
-    }
-}
-
 void Camera::processMouseMovement(float xOffset, float yOffset) {
     yaw_ += xOffset * mouseSensitivity;
     pitch_ += yOffset * mouseSensitivity;
