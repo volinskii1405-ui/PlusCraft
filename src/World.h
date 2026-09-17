@@ -8,6 +8,7 @@
 #include <array>
 #include <glm/glm.hpp>
 #include <memory>
+#include <vector>
 
 // The world is a fixed ChunksX x ChunksZ grid of Chunks (currently
 // 2x2 = 4), tiled seamlessly: terrain noise and face culling both go
@@ -26,7 +27,11 @@ public:
         glm::ivec3 placePos{0};  // the empty block just before it, for placing
     };
 
-    explicit World(uint32_t seed);
+    // generateTerrain=false makes an all-air grid instead (its chunks
+    // still exist and have GPU buffers, they're just empty) - used
+    // when loading a save, which fills every chunk's blocks itself via
+    // loadChunkBlocks() and then calls remesh() once.
+    explicit World(uint32_t seed, bool generateTerrain = true);
 
     BlockType getBlock(int x, int y, int z) const;
     void setBlock(int x, int y, int z, BlockType type);
@@ -37,6 +42,11 @@ public:
 
     glm::vec3 spawnPoint() const;
     const TextureAtlas& atlas() const { return atlas_; }
+
+    // For saving/loading (see WorldIO). Chunk-local coordinates.
+    const std::vector<BlockType>& chunkBlocks(int cx, int cz) const { return chunkAt(cx, cz).rawBlocks(); }
+    void loadChunkBlocks(int cx, int cz, const std::vector<BlockType>& blocks) { chunkAt(cx, cz).loadRawBlocks(blocks); }
+    void remesh();
 
 private:
     Chunk& chunkAt(int cx, int cz) { return *chunks_[static_cast<size_t>(cz) * ChunksX + cx]; }

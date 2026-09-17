@@ -31,6 +31,13 @@ public:
     BlockType getBlock(int x, int y, int z) const;
     void setBlock(int x, int y, int z, BlockType type);
 
+    // For saving/loading: the flat block array in the same order
+    // index(x,y,z) produces. loadRawBlocks() is a no-op if the size
+    // doesn't match (e.g. a save file from a build with different
+    // chunk dimensions).
+    const std::vector<BlockType>& rawBlocks() const { return blocks_; }
+    void loadRawBlocks(const std::vector<BlockType>& blocks);
+
     // Rebuilds the CPU-side face mesh (culling hidden faces) and
     // re-uploads it to the GPU, baking worldOffsetX/Z into the vertex
     // positions so the mesh renders directly in world space with no

@@ -2,11 +2,17 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
-World::World(uint32_t seed) {
+World::World(uint32_t seed, bool generateTerrain) {
     for (int cz = 0; cz < ChunksZ; ++cz) {
         for (int cx = 0; cx < ChunksX; ++cx) {
             chunks_[static_cast<size_t>(cz) * ChunksX + cx] = std::make_unique<Chunk>();
         }
+    }
+
+    if (!generateTerrain) {
+        // Caller (WorldIO) will fill every chunk's blocks via
+        // loadChunkBlocks() and then call remesh() once itself.
+        return;
     }
 
     // Generate every chunk's blocks first, then mesh them - meshing
@@ -18,9 +24,13 @@ World::World(uint32_t seed) {
             chunkAt(cx, cz).generate(seed, cx * Chunk::SizeX, cz * Chunk::SizeZ);
         }
     }
+    remesh();
+}
+
+void World::remesh() {
     for (int cz = 0; cz < ChunksZ; ++cz) {
         for (int cx = 0; cx < ChunksX; ++cx) {
-            chunkAt(cx, cz).rebuildMesh(atlas_, *this, cx * Chunk::SizeX, cz * Chunk::SizeZ);
+            rebuildChunkMesh(cx, cz);
         }
     }
 }

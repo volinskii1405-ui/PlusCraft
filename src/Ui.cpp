@@ -1,4 +1,5 @@
 #include "Ui.h"
+#include "Font.h"
 #include "Shaders.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -74,4 +75,37 @@ void Ui::drawIcon(float x, float y, float size, GLuint textureId, float u0, floa
     // World-space v=1 is "up"; screen space y grows downward, so the
     // top of the quad (smallest y) must sample v1, not v0.
     drawQuad(x, y, size, size, u0, v1, u1, v0, glm::vec4(1.0f), true, textureId);
+}
+
+void Ui::drawRect(float x, float y, float w, float h, const glm::vec4& color) {
+    drawQuad(x, y, w, h, 0, 0, 1, 1, color, false, 0);
+}
+
+namespace {
+constexpr float kGlyphCols = 5.0f;
+constexpr float kGlyphAdvance = kGlyphCols + 1.0f; // one blank column of spacing
+} // namespace
+
+void Ui::drawText(const std::string& text, float x, float y, float scale, const glm::vec4& color) {
+    float penX = x;
+    for (char c : text) {
+        const Glyph& glyph = glyphFor(c);
+        for (int row = 0; row < 7; ++row) {
+            uint8_t bits = glyph.rows[row];
+            for (int col = 0; col < 5; ++col) {
+                if (bits & (1 << col)) {
+                    drawRect(penX + col * scale, y + row * scale, scale, scale, color);
+                }
+            }
+        }
+        penX += kGlyphAdvance * scale;
+    }
+}
+
+float Ui::textWidth(const std::string& text, float scale) const {
+    if (text.empty()) {
+        return 0.0f;
+    }
+    // No trailing letter-spacing after the last glyph.
+    return static_cast<float>(text.size()) * kGlyphAdvance * scale - scale;
 }

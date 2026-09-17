@@ -6,17 +6,21 @@
 #include "Block.h"
 #include "Camera.h"
 #include "Highlight.h"
+#include "Menu.h"
 #include "Player.h"
 #include "Shader.h"
 #include "Shaders.h"
 #include "Ui.h"
 #include "World.h"
+#include "WorldIO.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <memory>
+#include <random>
 
 namespace {
 
@@ -26,6 +30,14 @@ bool gFirstMouse = true;
 float gLastX = gWindowWidth / 2.0f;
 float gLastY = gWindowHeight / 2.0f;
 
+// GLFW only gives a window a single user pointer; both callbacks below
+// need to reach different things depending on which screen is active,
+// so they share this instead.
+struct AppState {
+    Camera* camera = nullptr; // set only once in-game
+    Menu* menu = nullptr;     // set for the whole session
+};
+
 void framebufferSizeCallback(GLFWwindow*, int width, int height) {
     gWindowWidth = width;
     gWindowHeight = height;
@@ -33,8 +45,8 @@ void framebufferSizeCallback(GLFWwindow*, int width, int height) {
 }
 
 void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
-    auto* camera = static_cast<Camera*>(glfwGetWindowUserPointer(window));
-    if (!camera) {
+    auto* app = static_cast<AppState*>(glfwGetWindowUserPointer(window));
+    if (!app || !app->camera) {
         return;
     }
 
@@ -49,7 +61,14 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
     gLastX = static_cast<float>(xpos);
     gLastY = static_cast<float>(ypos);
 
-    camera->processMouseMovement(xOffset, yOffset);
+    app->camera->processMouseMovement(xOffset, yOffset);
+}
+
+void charCallback(GLFWwindow* window, unsigned int codepoint) {
+    auto* app = static_cast<AppState*>(glfwGetWindowUserPointer(window));
+    if (app && app->menu) {
+        app->menu->onChar(codepoint);
+    }
 }
 
 } // namespace
@@ -77,8 +96,8 @@ int main() {
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
     glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwSetCursorPosCallback(window, mouseCallback);
+    glfwSetCharCallback(window, charCallback);
 
     if (!glCore33Init()) {
         std::cerr << "Failed to load required OpenGL functions (need an OpenGL 3.3 capable driver)\n";
@@ -90,14 +109,23 @@ int main() {
     glClearColor(0.53f, 0.80f, 0.92f, 1.0f);
 
     Shader blockShader(kBlockVertexShader, kBlockFragmentShader);
-    World world(1337u);
-
-    Player player(world.spawnPoint());
-    Camera camera(player.eyePosition());
-    glfwSetWindowUserPointer(window, &camera);
-
     Ui ui;
     Highlight highlight;
+    Menu menu;
+
+    AppState appState;
+    appState.menu = &menu;
+    glfwSetWindowUserPointer(window, &appState);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+
+    enum class Screen { MainMenu, InGame };
+    Screen screen = Screen::MainMenu;
+
+    std::unique_ptr<World> world;
+    std::unique_ptr<Player> player;
+    std::unique_ptr<Camera> camera;
+    std::string currentWorldPath;
+    uint32_t currentSeed = 0;
 
     const std::array<BlockType, 6> hotbar = {
         BlockType::Dirt, BlockType::Stone, BlockType::Sand,
@@ -118,27 +146,79 @@ int main() {
     const float reach = 5.0f;
     bool prevRDown = false;
 
-    std::cout << "PlusCraft - WASD move, mouse look, Space to jump, Left Shift to sneak\n";
-    std::cout << "Left click (hold to repeat): break block, Right click (hold to repeat): place block\n";
-    std::cout << "1-6: select block, R: respawn, Esc: quit\n";
+    auto enterGame = [&](std::unique_ptr<World> newWorld, const glm::vec3& feet, int hotbarIndex, uint32_t seed, const std::string& path) {
+        world = std::move(newWorld);
+        player = std::make_unique<Player>(feet);
+        camera = std::make_unique<Camera>(player->eyePosition());
+        appState.camera = camera.get();
+        selected = hotbarIndex;
+        lastSelected = -1;
+        currentSeed = seed;
+        currentWorldPath = path;
+        breakCooldown = 0.0f;
+        placeCooldown = 0.0f;
+        prevRDown = false;
+        gFirstMouse = true;
+        screen = Screen::InGame;
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+        std::cout << "WASD move, mouse look, Space to jump, Left Shift to sneak\n";
+        std::cout << "Left click (hold to repeat): break block, Right click (hold to repeat): place block\n";
+        std::cout << "1-6: select block, R: respawn, Esc: save and quit to desktop\n";
+    };
+
+    std::cout << "PlusCraft\n";
 
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = static_cast<float>(glfwGetTime());
         float deltaTime = std::min(currentFrame - lastFrame, 0.05f); // clamp so a stall can't blow past a block in one physics step
         lastFrame = currentFrame;
 
+        if (screen == Screen::MainMenu) {
+            glClearColor(0.09f, 0.10f, 0.13f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            glDisable(GL_DEPTH_TEST);
+            ui.resize(gWindowWidth, gWindowHeight);
+
+            Menu::Result result = menu.tick(window, ui, gWindowWidth, gWindowHeight, currentFrame);
+            if (result.action == Menu::Action::Quit) {
+                glfwSetWindowShouldClose(window, true);
+            } else if (result.action == Menu::Action::StartNewWorld) {
+                std::random_device rd;
+                uint32_t seed = rd();
+                auto newWorld = std::make_unique<World>(seed);
+                glm::vec3 feet = newWorld->spawnPoint();
+                std::string path = worldio::pathForName(result.value);
+                worldio::save(path, *newWorld, seed, feet, 1);
+                enterGame(std::move(newWorld), feet, 1, seed, path);
+            } else if (result.action == Menu::Action::LoadWorld) {
+                auto loaded = worldio::load(result.value);
+                if (loaded) {
+                    enterGame(std::move(loaded->world), loaded->playerFeet, loaded->selectedHotbar, loaded->seed, result.value);
+                } else {
+                    std::cerr << "Failed to load world: " << result.value << "\n";
+                    menu.refreshWorldList();
+                }
+            }
+
+            glfwSwapBuffers(window);
+            glfwPollEvents();
+            continue;
+        }
+
+        // --- In game ---
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, true);
         }
 
         bool rDown = glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS;
         if (rDown && !prevRDown) {
-            player.teleport(world.spawnPoint());
+            player->teleport(world->spawnPoint());
         }
         prevRDown = rDown;
 
-        glm::vec3 forwardFlat(camera.front().x, 0.0f, camera.front().z);
-        glm::vec3 rightFlat(camera.right().x, 0.0f, camera.right().z);
+        glm::vec3 forwardFlat(camera->front().x, 0.0f, camera->front().z);
+        glm::vec3 rightFlat(camera->right().x, 0.0f, camera->right().z);
         if (glm::length(forwardFlat) > 1e-4f) forwardFlat = glm::normalize(forwardFlat);
         if (glm::length(rightFlat) > 1e-4f) rightFlat = glm::normalize(rightFlat);
 
@@ -151,8 +231,8 @@ int main() {
 
         bool jumpPressed = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
         bool sneaking = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
-        player.update(world, wishDir, jumpPressed, sneaking, deltaTime);
-        camera.setPosition(player.eyePosition());
+        player->update(*world, wishDir, jumpPressed, sneaking, deltaTime);
+        camera->setPosition(player->eyePosition());
 
         for (int i = 0; i < static_cast<int>(hotbar.size()); ++i) {
             if (glfwGetKey(window, GLFW_KEY_1 + i) == GLFW_PRESS) {
@@ -164,7 +244,7 @@ int main() {
             lastSelected = selected;
         }
 
-        World::RaycastHit hit = world.raycast(camera.position(), camera.front(), reach);
+        World::RaycastHit hit = world->raycast(camera->position(), camera->front(), reach);
 
         bool leftDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
         bool rightDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
@@ -175,7 +255,7 @@ int main() {
         if (leftDown) {
             if (breakCooldown <= 0.0f) {
                 if (hit.hit) {
-                    world.setBlock(hit.blockPos.x, hit.blockPos.y, hit.blockPos.z, BlockType::Air);
+                    world->setBlock(hit.blockPos.x, hit.blockPos.y, hit.blockPos.z, BlockType::Air);
                 }
                 breakCooldown = breakInterval;
             }
@@ -193,13 +273,13 @@ int main() {
                     // it doesn't push you back out of one that appears
                     // under/beside you. That's what let placing a block
                     // "under yourself" leave you stuck in it.
-                    glm::vec3 feet = player.feetPosition();
+                    glm::vec3 feet = player->feetPosition();
                     bool overlapsPlayer =
                         hit.placePos.x + 1.0f > feet.x - Player::HalfWidth && hit.placePos.x < feet.x + Player::HalfWidth &&
                         hit.placePos.z + 1.0f > feet.z - Player::HalfWidth && hit.placePos.z < feet.z + Player::HalfWidth &&
                         hit.placePos.y + 1.0f > feet.y && hit.placePos.y < feet.y + Player::Height;
                     if (!overlapsPlayer) {
-                        world.setBlock(hit.placePos.x, hit.placePos.y, hit.placePos.z, hotbar[selected]);
+                        world->setBlock(hit.placePos.x, hit.placePos.y, hit.placePos.z, hotbar[selected]);
                     }
                 }
                 placeCooldown = placeInterval;
@@ -208,17 +288,18 @@ int main() {
             placeCooldown = 0.0f;
         }
 
+        glClearColor(0.53f, 0.80f, 0.92f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glEnable(GL_DEPTH_TEST);
         blockShader.use();
-        glm::mat4 view = camera.getViewMatrix();
+        glm::mat4 view = camera->getViewMatrix();
         float aspect = gWindowHeight > 0 ? static_cast<float>(gWindowWidth) / static_cast<float>(gWindowHeight) : 1.0f;
         glm::mat4 projection = glm::perspective(glm::radians(70.0f), aspect, 0.05f, 300.0f);
         blockShader.setMat4("uView", view);
         blockShader.setMat4("uProjection", projection);
 
-        world.render(blockShader);
+        world->render(blockShader);
 
         if (hit.hit) {
             float blink = 0.55f + 0.45f * std::sin(currentFrame * 12.0f);
@@ -229,14 +310,18 @@ int main() {
         ui.resize(gWindowWidth, gWindowHeight);
         ui.drawCrosshair(glm::vec4(0.9f, 0.9f, 0.9f, 1.0f));
 
-        TextureAtlas::UV iconUv = world.atlas().uvFor(hotbar[selected], Face::PosX);
+        TextureAtlas::UV iconUv = world->atlas().uvFor(hotbar[selected], Face::PosX);
         const float iconSize = 48.0f;
         const float iconMargin = 16.0f;
-        ui.drawIcon(iconMargin, gWindowHeight - iconMargin - iconSize, iconSize, world.atlas().id(),
+        ui.drawIcon(iconMargin, gWindowHeight - iconMargin - iconSize, iconSize, world->atlas().id(),
                     iconUv.u0, iconUv.v0, iconUv.u1, iconUv.v1);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
+    }
+
+    if (screen == Screen::InGame && world && player) {
+        worldio::save(currentWorldPath, *world, currentSeed, player->feetPosition(), selected);
     }
 
     glfwTerminate();

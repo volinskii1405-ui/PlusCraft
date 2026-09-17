@@ -44,6 +44,8 @@ add_executable(PlusCraft
     src/Player.cpp
     src/Ui.cpp
     src/Highlight.cpp
+    src/WorldIO.cpp
+    src/Menu.cpp
 )
 
 target_link_libraries(PlusCraft PRIVATE glfw OpenGL::GL glm::glm)

@@ -30,11 +30,17 @@ into.
   block.
 - Face-culled meshing: only the faces touching air (or, for leaves,
   touching something other than more leaves) are actually drawn.
+- A main menu (its own tiny bitmap-font text renderer, no image
+  assets) before you ever touch a chunk: **Create World** prompts for
+  a name, picks a random seed, and drops you in; every world you've
+  made is also listed there, click one to keep playing where you left
+  off. `Esc` in-game saves and returns to the desktop; there's no
+  separate "save" button because leaving the game *is* the save.
 
 ## What's deliberately *not* here yet
 
-This is an MVP, not a full clone. No multiple chunks / infinite world,
-no inventory or crafting, no saving/loading, no mobs, no sprinting or
+This is an MVP, not a full clone. No infinite world (just a fixed 2x2
+chunk grid), no inventory or crafting, no mobs, no sprinting or
 swimming. The code is structured (`Chunk`, `World`, `Camera`, `Player`,
 `Shader`, `TextureAtlas`) so those are natural next additions rather
 than rewrites.
@@ -64,6 +70,12 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
 
 ## Controls
 
+**Menu:** click **CREATE WORLD**, type a name, `Enter` to confirm
+(`Esc` cancels back to the list); click any listed world to load it;
+`Esc` at the list quits.
+
+**In game:**
+
 | Input                 | Action                      |
 |------------------------|------------------------------|
 | `W` `A` `S` `D`         | Move                         |
@@ -74,7 +86,7 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
 | Left click (hold to repeat) | Break the targeted block |
 | Right click (hold to repeat) | Place the selected block |
 | `1`-`6`                | Select block to place        |
-| `Esc`                  | Quit                         |
+| `Esc`                  | Save and quit to desktop     |
 
 ## How it's built
 
@@ -124,16 +136,35 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   larger than a unit cube so it doesn't z-fight with the block's own
   faces. Drawn with the same view/projection as the world, before the
   UI pass turns depth testing off.
-- **`Ui`** - a tiny 2D overlay (its own shader + one dynamic quad
+- **`Font` / `Ui`** - `Font.h` is a hand-authored 5x7 bitmap font (just
+  A-Z, 0-9, space, `-`, `_`, `.` - enough for menu/HUD text, no image
+  assets). `Ui` is a tiny 2D overlay (its own shader + one dynamic quad
   buffer, drawn with depth testing off after the 3D scene): the
-  crosshair is two rectangles at screen center, and the hotbar icon is
-  a textured quad sampling the block's side tile straight out of the
-  atlas.
-- **`main.cpp`** - GLFW window/input glue: builds the shader, world,
-  player, camera, UI and highlight, then each frame turns WASD into a
-  wish direction, updates the player's physics, copies its eye
-  position into the camera, raycasts once (reused for break/place and
-  for the block highlight), and draws.
+  crosshair is two rectangles at screen center, the hotbar icon is a
+  textured quad sampling the block's side tile straight out of the
+  atlas, `drawRect`/`drawText` (one small quad per lit glyph pixel)
+  are what the menu is built out of.
+- **`Menu`** - the pre-game screen's input/state machine: a
+  **CREATE WORLD** button, a click-to-load list of `worlds/*.wrld`
+  (scanned via `WorldIO::listWorldNames`), and a name-entry sub-screen
+  (typed characters arrive through a `glfwSetCharCallback`, forwarded
+  to `Menu::onChar`). It only decides *what* should happen
+  (`Action::StartNewWorld` / `LoadWorld` / `Quit`); `main.cpp` is the
+  one that actually creates or loads a `World`.
+- **`WorldIO`** - `.wrld` save files: a small binary header (seed,
+  world/chunk dimensions for a sanity check on load, player position,
+  selected hotbar slot) followed by every chunk's raw `BlockType`
+  array back to back. Loading builds a `World` in its "empty" mode
+  (see below) and pours the saved bytes straight into each chunk via
+  `loadChunkBlocks`, then meshes once - so edits round-trip exactly,
+  nothing is regenerated from the seed. `listWorldNames`/`pathForName`
+  handle the `worlds/` directory and filename sanitizing for the menu.
+- **`main.cpp`** - GLFW window/input glue. Starts on the menu screen
+  (normal visible cursor, no `World`/`Player`/`Camera` yet - those are
+  built lazily once the menu picks a world); switches to the FPS
+  screen (cursor disabled, gameplay loop as described above) once one
+  does. On quit, if a game was in progress, it's saved back to its
+  `.wrld` file before `glfwTerminate()`.
 
 ## License
 

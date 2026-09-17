@@ -101,6 +101,12 @@ void Chunk::setBlock(int x, int y, int z, BlockType type) {
     blocks_[index(x, y, z)] = type;
 }
 
+void Chunk::loadRawBlocks(const std::vector<BlockType>& blocks) {
+    if (blocks.size() == blocks_.size()) {
+        blocks_ = blocks;
+    }
+}
+
 void Chunk::generate(uint32_t seed, int worldOffsetX, int worldOffsetZ) {
     std::vector<int> heights(static_cast<size_t>(SizeX) * SizeZ);
 
