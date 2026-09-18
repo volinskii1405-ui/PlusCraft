@@ -36,6 +36,8 @@ float gLastY = gWindowHeight / 2.0f;
 struct AppState {
     Camera* camera = nullptr; // set only once in-game
     Menu* menu = nullptr;     // set for the whole session
+    int* selected = nullptr;  // hotbar index; scroll wheel steps it, in-game only
+    int hotbarCount = 0;
 };
 
 void framebufferSizeCallback(GLFWwindow*, int width, int height) {
@@ -71,6 +73,19 @@ void charCallback(GLFWwindow* window, unsigned int codepoint) {
     }
 }
 
+void scrollCallback(GLFWwindow* window, double /*xoffset*/, double yoffset) {
+    auto* app = static_cast<AppState*>(glfwGetWindowUserPointer(window));
+    if (!app || !app->camera || !app->selected || app->hotbarCount <= 0) {
+        return; // camera is only set once in-game
+    }
+    int delta = (yoffset > 0.0) ? -1 : (yoffset < 0.0 ? 1 : 0);
+    if (delta == 0) {
+        return;
+    }
+    int n = app->hotbarCount;
+    *app->selected = ((*app->selected + delta) % n + n) % n;
+}
+
 } // namespace
 
 int main() {
@@ -98,6 +113,7 @@ int main() {
     glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
     glfwSetCursorPosCallback(window, mouseCallback);
     glfwSetCharCallback(window, charCallback);
+    glfwSetScrollCallback(window, scrollCallback);
 
     if (!glCore33Init()) {
         std::cerr << "Failed to load required OpenGL functions (need an OpenGL 3.3 capable driver)\n";
@@ -127,12 +143,14 @@ int main() {
     std::string currentWorldPath;
     uint32_t currentSeed = 0;
 
-    const std::array<BlockType, 6> hotbar = {
+    const std::array<BlockType, 7> hotbar = {
         BlockType::Dirt, BlockType::Stone, BlockType::Sand,
-        BlockType::Wood, BlockType::Leaves, BlockType::Grass,
+        BlockType::Wood, BlockType::Planks, BlockType::Leaves, BlockType::Grass,
     };
     int selected = 1; // Stone
     int lastSelected = -1;
+    appState.selected = &selected;
+    appState.hotbarCount = static_cast<int>(hotbar.size());
 
     // Holding a mouse button repeats the action every breakInterval /
     // placeInterval seconds; a fresh press always fires immediately
@@ -162,9 +180,9 @@ int main() {
         screen = Screen::InGame;
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-        std::cout << "WASD move, mouse look, Space to jump, Left Shift to sneak\n";
+        std::cout << "WASD move, mouse look, Space to jump, Left Shift to sneak, Left Ctrl to sprint\n";
         std::cout << "Left click (hold to repeat): break block, Right click (hold to repeat): place block\n";
-        std::cout << "1-6: select block, R: respawn, Esc: save and quit to desktop\n";
+        std::cout << "1-7 or mouse wheel: select block, R: respawn, Esc: save and quit to desktop\n";
     };
 
     std::cout << "PlusCraft\n";
@@ -231,7 +249,8 @@ int main() {
 
         bool jumpPressed = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
         bool sneaking = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
-        player->update(*world, wishDir, jumpPressed, sneaking, deltaTime);
+        bool sprinting = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
+        player->update(*world, wishDir, jumpPressed, sneaking, sprinting, deltaTime);
         camera->setPosition(player->eyePosition());
 
         for (int i = 0; i < static_cast<int>(hotbar.size()); ++i) {

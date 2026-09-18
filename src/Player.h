@@ -5,7 +5,7 @@
 
 // Axis-separated AABB physics: gravity, jumping, and collision against
 // solid blocks (leaves included - they're visually see-through but
-// still solid, same as vanilla Minecraft). No sprinting or swimming.
+// still solid, same as vanilla Minecraft). No swimming.
 class Player {
 public:
     explicit Player(glm::vec3 spawnFeetPosition);
@@ -14,8 +14,9 @@ public:
     // space; jumpPressed only triggers a jump while standing on ground.
     // sneaking lowers the eye height and, while already on ground,
     // refuses horizontal movement that would walk the player off an
-    // edge with nothing underneath.
-    void update(const World& world, const glm::vec3& wishDir, bool jumpPressed, bool sneaking, float dt);
+    // edge with nothing underneath; it also overrides sprinting (can't
+    // sprint-sneak, same as vanilla).
+    void update(const World& world, const glm::vec3& wishDir, bool jumpPressed, bool sneaking, bool sprinting, float dt);
 
     glm::vec3 eyePosition() const;
     const glm::vec3& feetPosition() const { return position_; }
@@ -39,8 +40,9 @@ private:
     bool onGround_ = false;
     bool sneaking_ = false;
 
-    static constexpr float MoveSpeed = 5.0f;
-    static constexpr float SneakSpeedFactor = 0.5f;
+    static constexpr float MoveSpeed = 4.0f;
+    static constexpr float SneakSpeedFactor = 0.4f;
+    static constexpr float SprintSpeedFactor = 1.5f;
     static constexpr float JumpSpeed = 8.0f;
     static constexpr float Gravity = 22.0f;
     static constexpr float TerminalVelocity = 30.0f;

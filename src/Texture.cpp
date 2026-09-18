@@ -15,6 +15,7 @@ enum Tile {
     TileWoodSide = 5,
     TileWoodTop = 6,
     TileLeaves = 7,
+    TilePlanks = 8,
 };
 
 struct RGB {
@@ -96,6 +97,50 @@ void paintWoodTop(std::vector<uint8_t>& pixels, int atlasW, uint32_t seed) {
     }
 }
 
+void paintStone(std::vector<uint8_t>& pixels, int atlasW, uint32_t seed) {
+    const RGB base{125, 126, 129};
+    for (int y = 0; y < TextureAtlas::TileSize; ++y) {
+        for (int x = 0; x < TextureAtlas::TileSize; ++x) {
+            // Low-frequency blotches (sampled on a coarser grid than one
+            // noise value per pixel) read as mottled stone; per-pixel
+            // noise at uniform strength is what made this look like
+            // gravel instead.
+            float blotch = noise::value2D(x * 0.3f, y * 0.3f, seed);
+            RGB c = shade(base, blotch, 0.14f);
+
+            // Sparse dark pits and light flecks for a bit of rock
+            // texture without every pixel flickering independently.
+            float fleck = noise::rand01(x, y, seed + 500);
+            if (fleck > 0.92f) {
+                c = shade(c, 0.0f, 0.30f);
+            } else if (fleck < 0.05f) {
+                c = shade(c, 1.0f, 0.10f);
+            }
+
+            putPixel(pixels, atlasW, TileStone * TextureAtlas::TileSize + x, y, c, 255);
+        }
+    }
+}
+
+void paintPlanks(std::vector<uint8_t>& pixels, int atlasW, uint32_t seed) {
+    const RGB planks[3] = {{176, 138, 84}, {186, 147, 91}, {166, 129, 78}};
+    for (int y = 0; y < TextureAtlas::TileSize; ++y) {
+        int plank = y / 4; // 4 horizontal planks, 4px tall each
+        RGB base = planks[plank % 3];
+        bool seam = (y % 4) == 0; // a seam line between planks
+        for (int x = 0; x < TextureAtlas::TileSize; ++x) {
+            float n = noise::rand01(x, y, seed);
+            RGB c = shade(base, n, 0.08f);
+            if (seam) {
+                c = shade(c, 0.0f, 0.35f);
+            } else if (((x + plank * 3) % 8) == 0) {
+                c = shade(c, 0.0f, 0.15f); // a faint grain line down each plank
+            }
+            putPixel(pixels, atlasW, TilePlanks * TextureAtlas::TileSize + x, y, c, 255);
+        }
+    }
+}
+
 void paintLeaves(std::vector<uint8_t>& pixels, int atlasW, uint32_t seed) {
     const RGB leaf{58, 110, 42};
     for (int y = 0; y < TextureAtlas::TileSize; ++y) {
@@ -118,11 +163,12 @@ TextureAtlas::TextureAtlas() {
     paintTile(pixels, atlasW, TileGrassTop, {92, 150, 63}, 0.18f, 11);
     paintGrassSide(pixels, atlasW, 22);
     paintTile(pixels, atlasW, TileDirt, {121, 85, 58}, 0.18f, 33);
-    paintTile(pixels, atlasW, TileStone, {128, 128, 130}, 0.16f, 44);
+    paintStone(pixels, atlasW, 44);
     paintTile(pixels, atlasW, TileSand, {219, 205, 157}, 0.12f, 55);
     paintWoodSide(pixels, atlasW, 66);
     paintWoodTop(pixels, atlasW, 77);
     paintLeaves(pixels, atlasW, 88);
+    paintPlanks(pixels, atlasW, 99);
 
     glGenTextures(1, &textureId_);
     glBindTexture(GL_TEXTURE_2D, textureId_);
@@ -166,6 +212,9 @@ TextureAtlas::UV TextureAtlas::uvFor(BlockType type, Face face) const {
             break;
         case BlockType::Leaves:
             tile = TileLeaves;
+            break;
+        case BlockType::Planks:
+            tile = TilePlanks;
             break;
         default:
             tile = TileStone;

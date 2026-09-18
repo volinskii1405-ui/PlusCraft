@@ -10,6 +10,7 @@ enum class BlockType : uint8_t {
     Sand,
     Wood,
     Leaves,
+    Planks,
     Count
 };
 
@@ -41,6 +42,7 @@ inline const char* blockName(BlockType type) {
         case BlockType::Sand: return "Sand";
         case BlockType::Wood: return "Wood";
         case BlockType::Leaves: return "Leaves";
+        case BlockType::Planks: return "Planks";
         default: return "Unknown";
     }
 }

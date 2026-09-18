@@ -10,7 +10,7 @@
 class TextureAtlas {
 public:
     static constexpr int TileSize = 16;
-    static constexpr int TileCount = 8;
+    static constexpr int TileCount = 9;
 
     TextureAtlas();
     ~TextureAtlas();

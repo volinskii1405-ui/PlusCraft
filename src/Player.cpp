@@ -105,7 +105,7 @@ void Player::teleport(const glm::vec3& feetPosition) {
     onGround_ = false;
 }
 
-void Player::update(const World& world, const glm::vec3& wishDir, bool jumpPressed, bool sneaking, float dt) {
+void Player::update(const World& world, const glm::vec3& wishDir, bool jumpPressed, bool sneaking, bool sprinting, float dt) {
     sneaking_ = sneaking;
 
     // Safety net: normal collision only ever stops a *new* move into
@@ -119,7 +119,12 @@ void Player::update(const World& world, const glm::vec3& wishDir, bool jumpPress
         ++unstuckSteps;
     }
 
-    float speed = sneaking ? MoveSpeed * SneakSpeedFactor : MoveSpeed;
+    float speed = MoveSpeed;
+    if (sneaking) {
+        speed *= SneakSpeedFactor;
+    } else if (sprinting) {
+        speed *= SprintSpeedFactor;
+    }
     velocity_.x = wishDir.x * speed;
     velocity_.z = wishDir.z * speed;
 

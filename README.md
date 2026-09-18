@@ -8,22 +8,23 @@ into.
 ## What's here
 
 - A first-person walking camera (WASD + mouse look, Space to jump,
-  Left Shift to sneak - at half speed) with gravity and AABB collision
-  against the terrain - you walk on the ground and can't clip through
-  blocks. Sneaking also lowers your eye height and, while on ground,
-  refuses to walk you off an edge with nothing underneath. `R`
-  teleports you back to the spawn point.
+  Left Shift to sneak, Left Ctrl to sprint) with gravity and AABB
+  collision against the terrain - you walk on the ground and can't
+  clip through blocks. Sneaking also lowers your eye height and, while
+  on ground, refuses to walk you off an edge with nothing underneath
+  (and overrides sprint, same as vanilla). `R` teleports you back to
+  the spawn point.
 - A 2x2 grid of 32x48x32 chunks (64x48x64 blocks total) generated from
   one continuous value-noise heightmap, with grass/dirt/stone layers,
   sandy beaches at low elevation, and a scattering of trees; chunks
   are meshed against each other so there's no seam at the borders.
-- Textured cubes: an 8-tile texture atlas (grass, dirt, stone, sand,
-  wood, leaves) is generated procedurally at startup, so the repo ships
-  with zero external image assets.
+- Textured cubes: a 9-tile texture atlas (grass, dirt, stone, sand,
+  wood, planks, leaves) is generated procedurally at startup, so the
+  repo ships with zero external image assets.
 - Break/place: left click removes the block you're looking at, right
   click places the currently selected block against it; hold either
-  button down to repeat. Keys `1`-`6` switch the selected block (dirt,
-  stone, sand, wood, leaves, grass).
+  button down to repeat. Keys `1`-`7` or the mouse wheel switch the
+  selected block (dirt, stone, sand, wood, planks, leaves, grass).
 - A static crosshair at screen center; whatever block it's over
   (within a 5-block reach) gets a blinking white wireframe outline.
   A small icon in the bottom-left corner shows the currently selected
@@ -40,10 +41,10 @@ into.
 ## What's deliberately *not* here yet
 
 This is an MVP, not a full clone. No infinite world (just a fixed 2x2
-chunk grid), no inventory or crafting, no mobs, no sprinting or
-swimming. The code is structured (`Chunk`, `World`, `Camera`, `Player`,
-`Shader`, `TextureAtlas`) so those are natural next additions rather
-than rewrites.
+chunk grid), no inventory or crafting, no mobs, no swimming. The code
+is structured (`Chunk`, `World`, `Camera`, `Player`, `Shader`,
+`TextureAtlas`) so those are natural next additions rather than
+rewrites.
 
 ## Building
 
@@ -81,11 +82,12 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
 | `W` `A` `S` `D`         | Move                         |
 | Mouse                  | Look around                  |
 | `Space`                | Jump                         |
-| `Left Shift`           | Sneak (half speed, lower, can't fall off edges) |
+| `Left Shift`           | Sneak (slower, lower, can't fall off edges) |
+| `Left Ctrl`            | Sprint (faster; overridden by sneak) |
 | `R`                    | Respawn                      |
 | Left click (hold to repeat) | Break the targeted block |
 | Right click (hold to repeat) | Place the selected block |
-| `1`-`6`                | Select block to place        |
+| `1`-`7` / mouse wheel  | Select block to place        |
 | `Esc`                  | Save and quit to desktop     |
 
 ## How it's built
@@ -109,12 +111,19 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   binary-searches how far along that step it can actually go, so it
   lands flush against the surface or edge rather than stopping short
   or clipping in (landing on Y while falling also sets "on ground",
-  which is what allows the next jump).
-- **`TextureAtlas`** - generates an 8-tile 128x16 RGBA texture in
-  memory on startup. Each tile is filled with a base color plus
-  per-pixel hash noise so it reads as "textured" instead of flat; the
-  leaves tile additionally punches random alpha holes and the fragment
-  shader `discard`s low-alpha texels for a leafy silhouette.
+  which is what allows the next jump). Move speed is a base walk speed
+  scaled down while sneaking or up while sprinting (sneaking wins if
+  both are held).
+- **`TextureAtlas`** - generates a 9-tile 144x16 RGBA texture in
+  memory on startup. Most tiles are a base color plus per-pixel hash
+  noise so they read as "textured" instead of flat; a couple are
+  hand-built instead where per-pixel noise reads wrong - stone uses
+  coarser, lower-frequency blotches with a few sparse dark/light flecks
+  so it looks like mottled rock rather than uniform gravel, and planks
+  are four horizontal bands (with seam lines between them) in
+  alternating shades rather than a single noisy color. The leaves tile
+  additionally punches random alpha holes and the fragment shader
+  `discard`s low-alpha texels for a leafy silhouette.
 - **`Chunk`** - owns a flat `BlockType` array, procedurally fills it
   (heightmap + trees) in `generate()`, and turns it into a single
   interleaved vertex buffer in `rebuildMesh()`: for every solid block,
@@ -159,6 +168,9 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   `loadChunkBlocks`, then meshes once - so edits round-trip exactly,
   nothing is regenerated from the seed. `listWorldNames`/`pathForName`
   handle the `worlds/` directory and filename sanitizing for the menu.
+  New `BlockType`s always get added at the end of the enum (before
+  `Count`) rather than inserted, so old `.wrld` files keep decoding to
+  the same blocks they were saved with.
 - **`main.cpp`** - GLFW window/input glue. Starts on the menu screen
   (normal visible cursor, no `World`/`Player`/`Camera` yet - those are
   built lazily once the menu picks a world); switches to the FPS
