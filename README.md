@@ -18,19 +18,23 @@ into.
   one continuous value-noise heightmap, with grass/dirt/stone layers,
   sandy beaches at low elevation, and a scattering of trees; chunks
   are meshed against each other so there's no seam at the borders.
-- Textured cubes: a 9-tile texture atlas (grass, dirt, stone, sand,
-  wood, planks, leaves) is generated procedurally at startup, so the
-  repo ships with zero external image assets.
+- Textured cubes: an 11-tile texture atlas (grass, dirt, stone, sand,
+  wood, planks, wool, glass, leaves) is generated procedurally at
+  startup, so the repo ships with zero external image assets. Glass is
+  genuinely see-through (real alpha blending, not just an on/off
+  cutout like leaves) - a faint tinted pane with a brighter frame.
+- A 9-slot hotbar bar at the bottom of the screen, one icon per block
+  (dirt, stone, sand, wood, planks, wool, glass, leaves, grass) with
+  the selected slot outlined. Keys `1`-`9` or the mouse wheel change
+  the selection.
 - Break/place: left click removes the block you're looking at, right
   click places the currently selected block against it; hold either
-  button down to repeat. Keys `1`-`7` or the mouse wheel switch the
-  selected block (dirt, stone, sand, wood, planks, leaves, grass).
+  button down to repeat.
 - A static crosshair at screen center; whatever block it's over
   (within a 5-block reach) gets a blinking white wireframe outline.
-  A small icon in the bottom-left corner shows the currently selected
-  block.
-- Face-culled meshing: only the faces touching air (or, for leaves,
-  touching something other than more leaves) are actually drawn.
+- Face-culled meshing: only the faces touching air (or, for leaves and
+  glass, touching something other than more of the same block) are
+  actually drawn.
 - A main menu (its own tiny bitmap-font text renderer, no image
   assets) before you ever touch a chunk: **Create World** prompts for
   a name, picks a random seed, and drops you in; every world you've
@@ -87,7 +91,7 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
 | `R`                    | Respawn                      |
 | Left click (hold to repeat) | Break the targeted block |
 | Right click (hold to repeat) | Place the selected block |
-| `1`-`7` / mouse wheel  | Select block to place        |
+| `1`-`9` / mouse wheel  | Select block to place        |
 | `Esc`                  | Save and quit to desktop     |
 
 ## How it's built
@@ -114,21 +118,26 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   which is what allows the next jump). Move speed is a base walk speed
   scaled down while sneaking or up while sprinting (sneaking wins if
   both are held).
-- **`TextureAtlas`** - generates a 9-tile 144x16 RGBA texture in
+- **`TextureAtlas`** - generates an 11-tile 176x16 RGBA texture in
   memory on startup. Most tiles are a base color plus per-pixel hash
-  noise so they read as "textured" instead of flat; a couple are
+  noise so they read as "textured" instead of flat; a few are
   hand-built instead where per-pixel noise reads wrong - stone uses
   coarser, lower-frequency blotches with a few sparse dark/light flecks
   so it looks like mottled rock rather than uniform gravel, and planks
   are four horizontal bands (with seam lines between them) in
   alternating shades rather than a single noisy color. The leaves tile
-  additionally punches random alpha holes and the fragment shader
-  `discard`s low-alpha texels for a leafy silhouette.
+  punches random alpha holes for a leafy silhouette (the fragment
+  shader `discard`s anything below alpha 0.1); glass instead keeps
+  every texel but at low alpha (~22%, brighter and less transparent in
+  a 1px frame around the edge) and actually blends - `main.cpp` enables
+  `GL_BLEND` with standard `(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)` once at
+  startup, which is a no-op for every other block since they're all
+  fully opaque.
 - **`Chunk`** - owns a flat `BlockType` array, procedurally fills it
   (heightmap + trees) in `generate()`, and turns it into a single
   interleaved vertex buffer in `rebuildMesh()`: for every solid block,
   each of its 6 faces is only emitted if the neighboring block in that
-  direction is transparent (air, or a different block's leaves).
+  direction is transparent (air, or a different block of leaves/glass).
   `generate()` and `rebuildMesh()` both work in world-space coordinates
   (given the chunk's own offset), so terrain and face culling are both
   continuous across chunk borders instead of repeating or seaming.
@@ -149,10 +158,11 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   A-Z, 0-9, space, `-`, `_`, `.` - enough for menu/HUD text, no image
   assets). `Ui` is a tiny 2D overlay (its own shader + one dynamic quad
   buffer, drawn with depth testing off after the 3D scene): the
-  crosshair is two rectangles at screen center, the hotbar icon is a
-  textured quad sampling the block's side tile straight out of the
-  atlas, `drawRect`/`drawText` (one small quad per lit glyph pixel)
-  are what the menu is built out of.
+  crosshair is two rectangles at screen center, `drawRect`/`drawText`
+  (one small quad per lit glyph pixel) are what the menu and the
+  hotbar's slot backgrounds are built out of, and `drawIcon` is a
+  textured quad sampling a block's side tile straight out of the atlas
+  - `main.cpp` draws one per hotbar slot, each frame, in a loop.
 - **`Menu`** - the pre-game screen's input/state machine: a
   **CREATE WORLD** button, a click-to-load list of `worlds/*.wrld`
   (scanned via `WorldIO::listWorldNames`), and a name-entry sub-screen

@@ -16,6 +16,8 @@ enum Tile {
     TileWoodTop = 6,
     TileLeaves = 7,
     TilePlanks = 8,
+    TileWool = 9,
+    TileGlass = 10,
 };
 
 struct RGB {
@@ -141,6 +143,24 @@ void paintPlanks(std::vector<uint8_t>& pixels, int atlasW, uint32_t seed) {
     }
 }
 
+void paintGlass(std::vector<uint8_t>& pixels, int atlasW, uint32_t seed) {
+    const RGB pane{215, 233, 235};
+    const RGB frame{238, 247, 248};
+    const int size = TextureAtlas::TileSize;
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            float n = noise::rand01(x, y, seed);
+            bool border = x == 0 || y == 0 || x == size - 1 || y == size - 1;
+            RGB c = shade(border ? frame : pane, n, 0.05f);
+            // Mostly see-through with just a faint pane tint, and a
+            // brighter, less transparent frame around the edge so it
+            // still reads as a block and not empty air.
+            uint8_t alpha = border ? 170 : 55;
+            putPixel(pixels, atlasW, TileGlass * size + x, y, c, alpha);
+        }
+    }
+}
+
 void paintLeaves(std::vector<uint8_t>& pixels, int atlasW, uint32_t seed) {
     const RGB leaf{58, 110, 42};
     for (int y = 0; y < TextureAtlas::TileSize; ++y) {
@@ -169,6 +189,8 @@ TextureAtlas::TextureAtlas() {
     paintWoodTop(pixels, atlasW, 77);
     paintLeaves(pixels, atlasW, 88);
     paintPlanks(pixels, atlasW, 99);
+    paintTile(pixels, atlasW, TileWool, {222, 222, 222}, 0.09f, 110);
+    paintGlass(pixels, atlasW, 121);
 
     glGenTextures(1, &textureId_);
     glBindTexture(GL_TEXTURE_2D, textureId_);
@@ -215,6 +237,12 @@ TextureAtlas::UV TextureAtlas::uvFor(BlockType type, Face face) const {
             break;
         case BlockType::Planks:
             tile = TilePlanks;
+            break;
+        case BlockType::Wool:
+            tile = TileWool;
+            break;
+        case BlockType::Glass:
+            tile = TileGlass;
             break;
         default:
             tile = TileStone;

@@ -122,6 +122,8 @@ int main() {
     }
 
     glDepthFunc(GL_LESS);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glClearColor(0.53f, 0.80f, 0.92f, 1.0f);
 
     Shader blockShader(kBlockVertexShader, kBlockFragmentShader);
@@ -143,9 +145,9 @@ int main() {
     std::string currentWorldPath;
     uint32_t currentSeed = 0;
 
-    const std::array<BlockType, 7> hotbar = {
-        BlockType::Dirt, BlockType::Stone, BlockType::Sand,
-        BlockType::Wood, BlockType::Planks, BlockType::Leaves, BlockType::Grass,
+    const std::array<BlockType, 9> hotbar = {
+        BlockType::Dirt, BlockType::Stone, BlockType::Sand, BlockType::Wood,
+        BlockType::Planks, BlockType::Wool, BlockType::Glass, BlockType::Leaves, BlockType::Grass,
     };
     int selected = 1; // Stone
     int lastSelected = -1;
@@ -182,7 +184,7 @@ int main() {
 
         std::cout << "WASD move, mouse look, Space to jump, Left Shift to sneak, Left Ctrl to sprint\n";
         std::cout << "Left click (hold to repeat): break block, Right click (hold to repeat): place block\n";
-        std::cout << "1-7 or mouse wheel: select block, R: respawn, Esc: save and quit to desktop\n";
+        std::cout << "1-9 or mouse wheel: select block, R: respawn, Esc: save and quit to desktop\n";
     };
 
     std::cout << "PlusCraft\n";
@@ -329,11 +331,27 @@ int main() {
         ui.resize(gWindowWidth, gWindowHeight);
         ui.drawCrosshair(glm::vec4(0.9f, 0.9f, 0.9f, 1.0f));
 
-        TextureAtlas::UV iconUv = world->atlas().uvFor(hotbar[selected], Face::PosX);
-        const float iconSize = 48.0f;
-        const float iconMargin = 16.0f;
-        ui.drawIcon(iconMargin, gWindowHeight - iconMargin - iconSize, iconSize, world->atlas().id(),
-                    iconUv.u0, iconUv.v0, iconUv.u1, iconUv.v1);
+        const float slotSize = 44.0f;
+        const float slotGap = 4.0f;
+        const int hotbarCount = static_cast<int>(hotbar.size());
+        const float hotbarWidth = hotbarCount * slotSize + (hotbarCount - 1) * slotGap;
+        const float hotbarX = (gWindowWidth - hotbarWidth) / 2.0f;
+        const float hotbarY = gWindowHeight - slotSize - 14.0f;
+
+        for (int i = 0; i < hotbarCount; ++i) {
+            float slotX = hotbarX + i * (slotSize + slotGap);
+            bool isSelected = (i == selected);
+            if (isSelected) {
+                ui.drawRect(slotX - 3.0f, hotbarY - 3.0f, slotSize + 6.0f, slotSize + 6.0f, glm::vec4(0.95f, 0.95f, 0.85f, 1.0f));
+            }
+            ui.drawRect(slotX, hotbarY, slotSize, slotSize,
+                        isSelected ? glm::vec4(0.24f, 0.24f, 0.28f, 1.0f) : glm::vec4(0.08f, 0.08f, 0.10f, 1.0f));
+
+            TextureAtlas::UV slotUv = world->atlas().uvFor(hotbar[i], Face::PosX);
+            const float iconInset = 4.0f;
+            ui.drawIcon(slotX + iconInset, hotbarY + iconInset, slotSize - iconInset * 2.0f, world->atlas().id(),
+                        slotUv.u0, slotUv.v0, slotUv.u1, slotUv.v1);
+        }
 
         glfwSwapBuffers(window);
         glfwPollEvents();

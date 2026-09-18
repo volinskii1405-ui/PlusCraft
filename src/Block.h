@@ -11,6 +11,8 @@ enum class BlockType : uint8_t {
     Wood,
     Leaves,
     Planks,
+    Wool,
+    Glass,
     Count
 };
 
@@ -30,7 +32,7 @@ inline bool isAir(BlockType type) {
 // Blocks a neighboring face is hidden behind unless the neighbor itself
 // lets light/visibility through.
 inline bool isTransparent(BlockType type) {
-    return type == BlockType::Air || type == BlockType::Leaves;
+    return type == BlockType::Air || type == BlockType::Leaves || type == BlockType::Glass;
 }
 
 inline const char* blockName(BlockType type) {
@@ -43,6 +45,8 @@ inline const char* blockName(BlockType type) {
         case BlockType::Wood: return "Wood";
         case BlockType::Leaves: return "Leaves";
         case BlockType::Planks: return "Planks";
+        case BlockType::Wool: return "Wool";
+        case BlockType::Glass: return "Glass";
         default: return "Unknown";
     }
 }
