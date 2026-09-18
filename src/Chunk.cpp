@@ -54,14 +54,12 @@ void pushVertex(std::vector<float>& verts, glm::vec3 pos, glm::vec3 normal, glm:
     verts.push_back(uv.y);
 }
 
-} // namespace
+void setUpMeshBuffers(GLuint& vao, GLuint& vbo) {
+    glGenVertexArrays(1, &vao);
+    glGenBuffers(1, &vbo);
 
-Chunk::Chunk() : blocks_(static_cast<size_t>(SizeX) * SizeY * SizeZ, BlockType::Air) {
-    glGenVertexArrays(1, &vao_);
-    glGenBuffers(1, &vbo_);
-
-    glBindVertexArray(vao_);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
     const GLsizei stride = 8 * sizeof(float);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
@@ -74,9 +72,18 @@ Chunk::Chunk() : blocks_(static_cast<size_t>(SizeX) * SizeY * SizeZ, BlockType::
     glBindVertexArray(0);
 }
 
+} // namespace
+
+Chunk::Chunk() : blocks_(static_cast<size_t>(SizeX) * SizeY * SizeZ, BlockType::Air) {
+    setUpMeshBuffers(vao_, vbo_);
+    setUpMeshBuffers(vaoTranslucent_, vboTranslucent_);
+}
+
 Chunk::~Chunk() {
     glDeleteBuffers(1, &vbo_);
     glDeleteVertexArrays(1, &vao_);
+    glDeleteBuffers(1, &vboTranslucent_);
+    glDeleteVertexArrays(1, &vaoTranslucent_);
 }
 
 bool Chunk::inBounds(int x, int y, int z) {
@@ -175,6 +182,7 @@ void Chunk::generate(uint32_t seed, int worldOffsetX, int worldOffsetZ) {
 void Chunk::rebuildMesh(const TextureAtlas& atlas, const World& world, int worldOffsetX, int worldOffsetZ) {
     std::vector<float> verts;
     verts.reserve(4096);
+    std::vector<float> translucentVerts;
 
     for (int y = 0; y < SizeY; ++y) {
         for (int z = 0; z < SizeZ; ++z) {
@@ -183,6 +191,7 @@ void Chunk::rebuildMesh(const TextureAtlas& atlas, const World& world, int world
                 if (isAir(type)) {
                     continue;
                 }
+                std::vector<float>& dest = isTranslucent(type) ? translucentVerts : verts;
 
                 for (int f = 0; f < 6; ++f) {
                     const Offset& off = kNeighborOffsets[f];
@@ -213,7 +222,7 @@ void Chunk::rebuildMesh(const TextureAtlas& atlas, const World& world, int world
 
                     const int triOrder[6] = {0, 1, 2, 0, 2, 3};
                     for (int t : triOrder) {
-                        pushVertex(verts, quadPos[t], def.normal, quadUV[t]);
+                        pushVertex(dest, quadPos[t], def.normal, quadUV[t]);
                     }
                 }
             }
@@ -221,16 +230,28 @@ void Chunk::rebuildMesh(const TextureAtlas& atlas, const World& world, int world
     }
 
     vertexCount_ = static_cast<GLsizei>(verts.size() / 8);
-
     glBindBuffer(GL_ARRAY_BUFFER, vbo_);
     glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(verts.size() * sizeof(float)), verts.data(), GL_DYNAMIC_DRAW);
+
+    vertexCountTranslucent_ = static_cast<GLsizei>(translucentVerts.size() / 8);
+    glBindBuffer(GL_ARRAY_BUFFER, vboTranslucent_);
+    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(translucentVerts.size() * sizeof(float)), translucentVerts.data(), GL_DYNAMIC_DRAW);
 }
 
-void Chunk::render() const {
+void Chunk::renderOpaque() const {
     if (vertexCount_ == 0) {
         return;
     }
     glBindVertexArray(vao_);
     glDrawArrays(GL_TRIANGLES, 0, vertexCount_);
+    glBindVertexArray(0);
+}
+
+void Chunk::renderTranslucent() const {
+    if (vertexCountTranslucent_ == 0) {
+        return;
+    }
+    glBindVertexArray(vaoTranslucent_);
+    glDrawArrays(GL_TRIANGLES, 0, vertexCountTranslucent_);
     glBindVertexArray(0);
 }

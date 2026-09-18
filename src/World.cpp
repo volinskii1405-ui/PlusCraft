@@ -92,9 +92,21 @@ World::RaycastHit World::raycast(glm::vec3 origin, glm::vec3 direction, float ma
 void World::render(const Shader& shader) const {
     atlas_.bind(GL_TEXTURE0);
     shader.setInt("uAtlas", 0);
+
     for (const auto& chunk : chunks_) {
-        chunk->render();
+        chunk->renderOpaque();
     }
+
+    // Translucent faces (glass) are drawn in a second pass with depth
+    // writes off: they still depth-*test* against everything opaque
+    // (so solid blocks in front of a glass face correctly hide it),
+    // but never write their own depth, so a glass face can't
+    // incorrectly occlude whatever's behind it once blended.
+    glDepthMask(GL_FALSE);
+    for (const auto& chunk : chunks_) {
+        chunk->renderTranslucent();
+    }
+    glDepthMask(GL_TRUE);
 }
 
 glm::vec3 World::spawnPoint() const {

@@ -45,9 +45,12 @@ public:
     // own edges go through `world` (in world-space coordinates) so
     // faces are culled correctly against whatever chunk is next door.
     // Call once after generate(), and again after any setBlock() that
-    // should become visible.
+    // should become visible. Faces of translucent blocks (see
+    // isTranslucent()) go into a separate buffer from everything else,
+    // so World can draw them in their own depth-write-disabled pass.
     void rebuildMesh(const TextureAtlas& atlas, const World& world, int worldOffsetX, int worldOffsetZ);
-    void render() const;
+    void renderOpaque() const;
+    void renderTranslucent() const;
 
     static bool inBounds(int x, int y, int z);
 
@@ -56,6 +59,9 @@ private:
     GLuint vao_ = 0;
     GLuint vbo_ = 0;
     GLsizei vertexCount_ = 0;
+    GLuint vaoTranslucent_ = 0;
+    GLuint vboTranslucent_ = 0;
+    GLsizei vertexCountTranslucent_ = 0;
 
     static size_t index(int x, int y, int z);
 };

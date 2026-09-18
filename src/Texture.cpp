@@ -143,6 +143,32 @@ void paintPlanks(std::vector<uint8_t>& pixels, int atlasW, uint32_t seed) {
     }
 }
 
+void paintWool(std::vector<uint8_t>& pixels, int atlasW, uint32_t seed) {
+    const RGB base{218, 218, 210};
+    const int size = TextureAtlas::TileSize;
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            // Soft, coarse blotches for a felted look, not the tighter
+            // per-pixel grain a mineral block like stone or sand wants.
+            float blotch = noise::value2D(x * 0.4f, y * 0.4f, seed);
+            RGB c = shade(base, blotch, 0.10f);
+
+            // A faint woven grid, like strands of yarn.
+            if (x % 4 == 0 || y % 4 == 0) {
+                c = shade(c, 0.0f, 0.06f);
+            }
+
+            // A few small, darker fiber flecks scattered around.
+            float fleck = noise::rand01(x, y, seed + 700);
+            if (fleck > 0.94f) {
+                c = shade(c, 0.0f, 0.22f);
+            }
+
+            putPixel(pixels, atlasW, TileWool * size + x, y, c, 255);
+        }
+    }
+}
+
 void paintGlass(std::vector<uint8_t>& pixels, int atlasW, uint32_t seed) {
     const RGB pane{215, 233, 235};
     const RGB frame{238, 247, 248};
@@ -152,10 +178,11 @@ void paintGlass(std::vector<uint8_t>& pixels, int atlasW, uint32_t seed) {
             float n = noise::rand01(x, y, seed);
             bool border = x == 0 || y == 0 || x == size - 1 || y == size - 1;
             RGB c = shade(border ? frame : pane, n, 0.05f);
-            // Mostly see-through with just a faint pane tint, and a
-            // brighter, less transparent frame around the edge so it
-            // still reads as a block and not empty air.
-            uint8_t alpha = border ? 170 : 55;
+            // Still clearly see-through, but enough tint that a pane
+            // reads as "a block is there" rather than "nothing here" -
+            // a brighter, less transparent frame around the edge helps
+            // that too.
+            uint8_t alpha = border ? 205 : 90;
             putPixel(pixels, atlasW, TileGlass * size + x, y, c, alpha);
         }
     }
@@ -189,7 +216,7 @@ TextureAtlas::TextureAtlas() {
     paintWoodTop(pixels, atlasW, 77);
     paintLeaves(pixels, atlasW, 88);
     paintPlanks(pixels, atlasW, 99);
-    paintTile(pixels, atlasW, TileWool, {222, 222, 222}, 0.09f, 110);
+    paintWool(pixels, atlasW, 110);
     paintGlass(pixels, atlasW, 121);
 
     glGenTextures(1, &textureId_);

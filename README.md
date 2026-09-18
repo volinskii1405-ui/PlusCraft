@@ -123,24 +123,38 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   noise so they read as "textured" instead of flat; a few are
   hand-built instead where per-pixel noise reads wrong - stone uses
   coarser, lower-frequency blotches with a few sparse dark/light flecks
-  so it looks like mottled rock rather than uniform gravel, and planks
+  so it looks like mottled rock rather than uniform gravel, planks
   are four horizontal bands (with seam lines between them) in
-  alternating shades rather than a single noisy color. The leaves tile
+  alternating shades rather than a single noisy color, and wool layers
+  coarse blotches (for a felted look) with a faint 4px woven grid and a
+  few scattered dark flecks rather than being a flat off-white square.
+  The leaves tile
   punches random alpha holes for a leafy silhouette (the fragment
   shader `discard`s anything below alpha 0.1); glass instead keeps
-  every texel but at low alpha (~22%, brighter and less transparent in
+  every texel but at low alpha (~35%, brighter and less transparent in
   a 1px frame around the edge) and actually blends - `main.cpp` enables
   `GL_BLEND` with standard `(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)` once at
   startup, which is a no-op for every other block since they're all
   fully opaque.
 - **`Chunk`** - owns a flat `BlockType` array, procedurally fills it
-  (heightmap + trees) in `generate()`, and turns it into a single
-  interleaved vertex buffer in `rebuildMesh()`: for every solid block,
-  each of its 6 faces is only emitted if the neighboring block in that
-  direction is transparent (air, or a different block of leaves/glass).
-  `generate()` and `rebuildMesh()` both work in world-space coordinates
-  (given the chunk's own offset), so terrain and face culling are both
-  continuous across chunk borders instead of repeating or seaming.
+  (heightmap + trees) in `generate()`, and meshes it into *two*
+  interleaved vertex buffers in `rebuildMesh()`: everything opaque
+  (including leaves, whose surviving texels are always fully opaque
+  even though the block counts as "transparent" for face culling), and
+  everything actually translucent (`isTranslucent()` - just glass for
+  now) kept separate. `World::render()` draws every chunk's opaque
+  buffer first, then every chunk's translucent buffer with depth
+  *writes* (not testing) turned off - translucent faces still respect
+  solid geometry in front of them, but can never themselves incorrectly
+  occlude something drawn behind. (An earlier version meshed both into
+  one buffer with depth writes always on, which is what let placing
+  glass make nearby solid faces render as if you could see through
+  them.) For every solid block, each of its 6 faces is only emitted if
+  the neighboring block in that direction is transparent (air, or a
+  different block of leaves/glass). `generate()` and `rebuildMesh()`
+  both work in world-space coordinates (given the chunk's own offset),
+  so terrain and face culling are both continuous across chunk borders
+  instead of repeating or seaming.
 - **`World`** - owns a `ChunksX x ChunksZ` grid of `Chunk`s (currently
   2x2) behind a `getBlock`/`setBlock`/`raycast`/`render` interface that
   doesn't care how many chunks there are. `getBlock`/`setBlock`

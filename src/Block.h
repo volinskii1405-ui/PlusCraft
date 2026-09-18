@@ -35,6 +35,15 @@ inline bool isTransparent(BlockType type) {
     return type == BlockType::Air || type == BlockType::Leaves || type == BlockType::Glass;
 }
 
+// True for blocks that need real alpha blending (as opposed to fully
+// opaque blocks, or leaves' binary alpha-cutout where every surviving
+// texel is fully opaque). Chunk meshes these into a separate buffer
+// rendered after - and without writing to - the depth buffer, so glass
+// can never incorrectly occlude something drawn behind it.
+inline bool isTranslucent(BlockType type) {
+    return type == BlockType::Glass;
+}
+
 inline const char* blockName(BlockType type) {
     switch (type) {
         case BlockType::Air: return "Air";
