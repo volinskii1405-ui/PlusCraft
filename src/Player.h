@@ -20,6 +20,11 @@ public:
 
     glm::vec3 eyePosition() const;
     const glm::vec3& feetPosition() const { return position_; }
+    bool onGround() const { return onGround_; }
+    // True only on the update() call where a jump was actually
+    // triggered (not just while airborne afterward) - for one-shot
+    // jump sound/effects.
+    bool justJumped() const { return justJumped_; }
 
     // Resets position and lets the player fall/stand fresh from there
     // (used by the "R" respawn key).
@@ -39,6 +44,7 @@ private:
     glm::vec3 velocity_{0.0f};
     bool onGround_ = false;
     bool sneaking_ = false;
+    bool justJumped_ = false;
 
     static constexpr float MoveSpeed = 4.0f;
     static constexpr float SneakSpeedFactor = 0.4f;

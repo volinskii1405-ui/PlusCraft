@@ -48,6 +48,11 @@ into.
   made is also listed there, click one to keep playing where you left
   off. `Esc` in-game saves and returns to the desktop; there's no
   separate "save" button because leaving the game *is* the save.
+- Sound: digging, placing, footsteps, and jumping all have a synthesized
+  sound effect, with the timbre depending on what material's involved
+  (stone/wood/dirt-sand-grass/leaves-wool/glass each sound distinct) -
+  like the textures, every clip is generated in memory at startup
+  rather than shipped as an audio file.
 
 ## What's deliberately *not* here yet
 
@@ -62,8 +67,10 @@ rewrites.
 Requires a C++17 compiler, CMake >= 3.16, and an internet connection the
 first time you configure (CMake `FetchContent` pulls in
 [GLFW](https://www.glfw.org/) and [GLM](https://github.com/g-truc/glm);
-OpenGL itself just needs to be available on your system - no other
-dependencies, no bundled loader library, no image assets to fetch).
+a plain `file(DOWNLOAD ...)` also grabs the single-header
+[miniaudio](https://miniaud.io/) for sound. OpenGL itself just needs to
+be available on your system - no other dependencies, no bundled loader
+library, no image or audio assets to fetch).
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -199,6 +206,24 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   hotbar's slot backgrounds are built out of, and `drawIcon` is a
   textured quad sampling a block's side tile straight out of the atlas
   - `main.cpp` draws one per hotbar slot, each frame, in a loop.
+- **`Audio`** - every sound effect (dig, place, footstep, jump) is
+  synthesized once at startup as a short in-memory PCM clip: an
+  exponentially-decaying mix of filtered noise (a "thud"/"crack"
+  transient - how heavily it's low-pass filtered controls how dull vs.
+  crisp it sounds) plus an optional sine tone (a resonant "knock"/
+  "ring"), the same handful of knobs reused with different values per
+  material category (stone / wood / dirt-sand-grass / leaves-wool /
+  glass) instead of five sets of bespoke code. Playback goes through
+  [miniaudio](https://miniaud.io/) (a single-header library, fetched
+  the same lightweight way as the rest of this project's
+  dependencies): each clip is wrapped in an `ma_audio_buffer` data
+  source and played from a per-clip `ma_sound`, retriggered (stopped,
+  seeked to frame 0, restarted with a bit of randomized pitch/volume
+  for variety) rather than spawning overlapping voices. `Audio` hides
+  all of this behind four `play*` calls and a pImpl, so nothing else
+  in the codebase needs to know miniaudio exists; if no audio device
+  is available at all (e.g. a CI box), engine init just fails
+  quietly and every `play*` call becomes a no-op instead of crashing.
 - **`Menu`** - the pre-game screen's input/state machine: a
   **CREATE WORLD** button, a click-to-load list of `worlds/*.wrld`
   (scanned via `WorldIO::listWorldNames`), and a name-entry sub-screen
@@ -222,7 +247,13 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   built lazily once the menu picks a world); switches to the FPS
   screen (cursor disabled, gameplay loop as described above) once one
   does. On quit, if a game was in progress, it's saved back to its
-  `.wrld` file before `glfwTerminate()`.
+  `.wrld` file before `glfwTerminate()`. It's also what calls into
+  `Audio`: a dig/place sound fires right alongside the matching
+  `world->setBlock()` call, a jump sound fires on the frame
+  `Player::justJumped()` is true, and footsteps run on their own timer
+  (reset whenever movement stops) that fires while `Player::onGround()`
+  and the player has a nonzero move direction, sampling whatever block
+  is directly underfoot for which material to play.
 
 ## License
 

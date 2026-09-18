@@ -133,7 +133,8 @@ void Player::update(const World& world, const glm::vec3& wishDir, bool jumpPress
         velocity_.y = -TerminalVelocity;
     }
 
-    if (onGround_ && jumpPressed) {
+    justJumped_ = onGround_ && jumpPressed;
+    if (justJumped_) {
         velocity_.y = JumpSpeed;
     }
 

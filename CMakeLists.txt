@@ -32,6 +32,32 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(glfw glm)
 
 find_package(OpenGL REQUIRED)
+find_package(Threads REQUIRED)
+
+# miniaudio (https://miniaud.io) is a single header with no CMake
+# project of its own, so it's pulled in as a plain file rather than
+# through FetchContent's git/subdirectory machinery - same idea as
+# fetching GLFW/GLM, just lighter since it's one file. It dlopen()s
+# whatever audio backend the OS actually has at runtime (no dev
+# headers to install), and always has a working "null" backend to
+# fall back to, so it starts up fine even on a machine with no audio
+# device at all.
+set(MINIAUDIO_DIR "${CMAKE_BINARY_DIR}/_deps/miniaudio")
+set(MINIAUDIO_HEADER "${MINIAUDIO_DIR}/miniaudio.h")
+if(NOT EXISTS "${MINIAUDIO_HEADER}")
+    file(MAKE_DIRECTORY "${MINIAUDIO_DIR}")
+    message(STATUS "Fetching miniaudio.h...")
+    file(DOWNLOAD
+        "https://raw.githubusercontent.com/mackron/miniaudio/0.11.21/miniaudio.h"
+        "${MINIAUDIO_HEADER}"
+        STATUS MINIAUDIO_DOWNLOAD_STATUS
+    )
+    list(GET MINIAUDIO_DOWNLOAD_STATUS 0 MINIAUDIO_DOWNLOAD_CODE)
+    if(NOT MINIAUDIO_DOWNLOAD_CODE EQUAL 0)
+        file(REMOVE "${MINIAUDIO_HEADER}")
+        message(FATAL_ERROR "Failed to download miniaudio.h: ${MINIAUDIO_DOWNLOAD_STATUS}")
+    endif()
+endif()
 
 add_executable(PlusCraft
     src/main.cpp
@@ -46,9 +72,14 @@ add_executable(PlusCraft
     src/Highlight.cpp
     src/WorldIO.cpp
     src/Menu.cpp
+    src/Audio.cpp
 )
 
-target_link_libraries(PlusCraft PRIVATE glfw OpenGL::GL glm::glm)
+target_include_directories(PlusCraft PRIVATE "${MINIAUDIO_DIR}")
+target_link_libraries(PlusCraft PRIVATE glfw OpenGL::GL glm::glm Threads::Threads ${CMAKE_DL_LIBS})
+if(UNIX AND NOT APPLE)
+    target_link_libraries(PlusCraft PRIVATE m)
+endif()
 
 if(MSVC)
     target_compile_options(PlusCraft PRIVATE /W4)

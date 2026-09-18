@@ -3,6 +3,7 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
+#include "Audio.h"
 #include "Block.h"
 #include "Camera.h"
 #include "Highlight.h"
@@ -130,6 +131,7 @@ int main() {
     Ui ui;
     Highlight highlight;
     Menu menu;
+    Audio audio;
 
     AppState appState;
     appState.menu = &menu;
@@ -162,6 +164,14 @@ int main() {
     float breakCooldown = 0.0f;
     float placeCooldown = 0.0f;
 
+    // Footstep sounds repeat on their own timer (not tied to break/place)
+    // while the player is moving on the ground; sprinting/sneaking speed
+    // up or slow down the cadence to roughly match stride length.
+    const float stepIntervalWalk = 0.42f;
+    const float stepIntervalSprint = 0.30f;
+    const float stepIntervalSneak = 0.55f;
+    float stepCooldown = 0.0f;
+
     float lastFrame = static_cast<float>(glfwGetTime());
     const float reach = 5.0f;
     bool prevRDown = false;
@@ -177,6 +187,7 @@ int main() {
         currentWorldPath = path;
         breakCooldown = 0.0f;
         placeCooldown = 0.0f;
+        stepCooldown = 0.0f;
         prevRDown = false;
         gFirstMouse = true;
         screen = Screen::InGame;
@@ -254,6 +265,24 @@ int main() {
         bool sprinting = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
         player->update(*world, wishDir, jumpPressed, sneaking, sprinting, deltaTime);
         camera->setPosition(player->eyePosition());
+        if (player->justJumped()) {
+            audio.playJump();
+        }
+
+        stepCooldown -= deltaTime;
+        if (player->onGround() && glm::length(wishDir) > 1e-4f) {
+            if (stepCooldown <= 0.0f) {
+                glm::vec3 feet = player->feetPosition();
+                BlockType underfoot = world->getBlock(
+                    static_cast<int>(std::floor(feet.x)),
+                    static_cast<int>(std::floor(feet.y - 0.05f)),
+                    static_cast<int>(std::floor(feet.z)));
+                audio.playStep(underfoot);
+                stepCooldown = sneaking ? stepIntervalSneak : (sprinting ? stepIntervalSprint : stepIntervalWalk);
+            }
+        } else {
+            stepCooldown = 0.0f;
+        }
 
         for (int i = 0; i < static_cast<int>(hotbar.size()); ++i) {
             if (glfwGetKey(window, GLFW_KEY_1 + i) == GLFW_PRESS) {
@@ -276,7 +305,9 @@ int main() {
         if (leftDown) {
             if (breakCooldown <= 0.0f) {
                 if (hit.hit) {
+                    BlockType broken = world->getBlock(hit.blockPos.x, hit.blockPos.y, hit.blockPos.z);
                     world->setBlock(hit.blockPos.x, hit.blockPos.y, hit.blockPos.z, BlockType::Air);
+                    audio.playDig(broken);
                 }
                 breakCooldown = breakInterval;
             }
@@ -301,6 +332,7 @@ int main() {
                         hit.placePos.y + 1.0f > feet.y && hit.placePos.y < feet.y + Player::Height;
                     if (!overlapsPlayer) {
                         world->setBlock(hit.placePos.x, hit.placePos.y, hit.placePos.z, hotbar[selected]);
+                        audio.playPlace(hotbar[selected]);
                     }
                 }
                 placeCooldown = placeInterval;
