@@ -19,11 +19,12 @@ into.
   layers, sandy beaches at low elevation, and a scattering of trees;
   chunks are meshed against each other so there's no seam at the
   borders.
-- Simple skylight: any spot with a clear line straight up to the world
-  ceiling (through nothing but air/leaves/glass) is lit normally;
-  anything under solid cover - a mined-out pit, a roofed-over tunnel -
-  is darkened instead, so digging into a hillside gets visibly darker
-  as soon as there's rock over your head.
+- Skylight with 8 graded steps of brightness (not just an on/off lit
+  vs. dark cutoff): light starts at full strength anywhere with a clear
+  line straight up to the world ceiling, then fades by one step per
+  block as it spreads sideways/upward into anything roofed over, so a
+  mined-out pit or a tunnel gets gradually darker the deeper in you go
+  rather than snapping to black at the entrance.
 - Textured cubes: an 11-tile texture atlas (grass, dirt, stone, sand,
   wood, planks, wool, glass, leaves) is generated procedurally at
   startup, so the repo ships with zero external image assets. Glass is
@@ -171,14 +172,19 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   also rebuilds any neighboring chunk whose shared faces the edit could
   have changed. `raycast()` marches in small steps along the camera's
   look vector to find the targeted block and the empty cell just before
-  it (for placement). It also keeps a per-column skylight cache: for
-  every (x,z) it tracks the y of the highest non-transparent block,
-  and `skylightAt(x,y,z)` is lit (1.0) only above that height - a
-  deliberately simple vertical model rather than full 3D light
-  propagation, but enough to make a mined-out pit or a roofed-over
-  tunnel read as dark. `setBlock` recomputes just the edited column
-  before remeshing, and `remesh()` (used on load) recomputes every
-  column first.
+  it (for placement). It also owns the lighting: `computeLighting()` is
+  a multi-source breadth-first flood fill - every transparent cell with
+  a clear vertical line to the world ceiling seeds at full strength (8),
+  then that light spreads outward through neighboring transparent cells
+  one step at a time, losing one level per block traveled, giving 8
+  discrete graded steps instead of an on/off cutoff. `skylightAt(x,y,z)`
+  just reads the result as a 0..1 fraction. A single edit can in
+  principle change lighting arbitrarily far away (breaking into a
+  sealed cavern floods the whole thing with light), so both
+  `setBlock` and `remesh()` (used on load) recompute the whole world's
+  lighting and remesh every chunk rather than trying to patch just the
+  edited spot - the world is small enough (16 chunks) for that to stay
+  cheap.
 - **`Highlight`** - draws a blinking wireframe cube (12 `GL_LINES`
   edges, its own unlit shader) around the targeted block, slightly
   larger than a unit cube so it doesn't z-fight with the block's own

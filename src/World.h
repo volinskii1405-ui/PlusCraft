@@ -44,11 +44,15 @@ public:
     glm::vec3 spawnPoint() const;
     const TextureAtlas& atlas() const { return atlas_; }
 
-    // 1.0 if (x,y,z) has a clear vertical line to the sky (only air,
-    // leaves and/or glass above it, all the way to the world ceiling),
-    // 0.0 otherwise - e.g. a mined-out pit with a roof over it, or the
-    // bottom of a tunnel. Out-of-range x/z reads as lit. Used to darken
-    // faces that front onto an unlit cell (see Chunk::rebuildMesh).
+    // Light level at (x,y,z) as a 0..1 fraction of MaxLight, for
+    // however many of the MaxLight+1 discrete steps that skylight has
+    // faded through by the time it reaches this cell (see
+    // computeLighting()). 1.0 out in the open, fading down toward 0.0
+    // the further a cell is from open sky - e.g. a mined-out pit gets
+    // gradually darker as you dig deeper, not an abrupt on/off cutoff.
+    // Out-of-x/z-range reads as lit; above the world ceiling reads as
+    // lit; below the world floor reads as dark. Used to shade faces
+    // that front onto a given cell (see Chunk::rebuildMesh).
     float skylightAt(int x, int y, int z) const;
 
     // For saving/loading (see WorldIO). Chunk-local coordinates.
@@ -60,17 +64,26 @@ private:
     Chunk& chunkAt(int cx, int cz) { return *chunks_[static_cast<size_t>(cz) * ChunksX + cx]; }
     const Chunk& chunkAt(int cx, int cz) const { return *chunks_[static_cast<size_t>(cz) * ChunksX + cx]; }
     void rebuildChunkMesh(int cx, int cz);
+    void rebuildAllChunkMeshes();
 
-    // Highest block in world-space column (x,z) that blocks skylight
-    // (i.e. isn't air/leaves/glass), or -1 if the column is clear all
-    // the way down. A column is entirely within one chunk (chunks only
-    // tile in X/Z, not Y), so editing a block only ever needs to
-    // recompute its own column and rebuild its own chunk.
-    void recomputeColumnLight(int x, int z);
-    void recomputeAllColumnLight();
-    static size_t columnIndex(int x, int z) { return static_cast<size_t>(z) * SizeX + x; }
+    // Multi-source BFS flood fill: every transparent cell with a clear
+    // vertical line to the world ceiling seeds at MaxLight, then light
+    // spreads outward through transparent cells losing one step per
+    // block traveled (a plain unweighted BFS, since every seed starts
+    // equal and every edge costs 1 - so visiting cells in BFS order
+    // already assigns each one its correct, first-and-final level).
+    // Lighting can in principle change arbitrarily far from an edited
+    // block (e.g. breaking through into a sealed cavern floods the
+    // whole thing), so this - like every chunk's mesh - is recomputed
+    // from scratch on every edit rather than incrementally patched;
+    // the world is small enough (16 chunks) for that to be cheap.
+    void computeLighting();
+    static constexpr int MaxLight = 8;
+    static size_t voxelIndex(int x, int y, int z) {
+        return (static_cast<size_t>(y) * SizeZ + static_cast<size_t>(z)) * SizeX + static_cast<size_t>(x);
+    }
 
     std::array<std::unique_ptr<Chunk>, ChunksX * ChunksZ> chunks_;
     TextureAtlas atlas_;
-    std::vector<int16_t> topOpaqueY_;
+    std::vector<uint8_t> lightLevels_;
 };

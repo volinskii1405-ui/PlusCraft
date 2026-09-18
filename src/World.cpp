@@ -1,6 +1,8 @@
 #include "World.h"
 
+#include <algorithm>
 #include <glm/gtc/matrix_transform.hpp>
+#include <queue>
 
 World::World(uint32_t seed, bool generateTerrain) {
     for (int cz = 0; cz < ChunksZ; ++cz) {
@@ -8,7 +10,7 @@ World::World(uint32_t seed, bool generateTerrain) {
             chunks_[static_cast<size_t>(cz) * ChunksX + cx] = std::make_unique<Chunk>();
         }
     }
-    topOpaqueY_.assign(static_cast<size_t>(SizeX) * SizeZ, -1);
+    lightLevels_.assign(static_cast<size_t>(SizeX) * SizeY * SizeZ, 0);
 
     if (!generateTerrain) {
         // Caller (WorldIO) will fill every chunk's blocks via
@@ -29,7 +31,11 @@ World::World(uint32_t seed, bool generateTerrain) {
 }
 
 void World::remesh() {
-    recomputeAllColumnLight();
+    computeLighting();
+    rebuildAllChunkMeshes();
+}
+
+void World::rebuildAllChunkMeshes() {
     for (int cz = 0; cz < ChunksZ; ++cz) {
         for (int cx = 0; cx < ChunksX; ++cx) {
             rebuildChunkMesh(cx, cz);
@@ -37,21 +43,54 @@ void World::remesh() {
     }
 }
 
-void World::recomputeColumnLight(int x, int z) {
-    int top = -1;
-    for (int y = SizeY - 1; y >= 0; --y) {
-        if (!isTransparent(getBlock(x, y, z))) {
-            top = y;
-            break;
-        }
-    }
-    topOpaqueY_[columnIndex(x, z)] = static_cast<int16_t>(top);
-}
+void World::computeLighting() {
+    std::fill(lightLevels_.begin(), lightLevels_.end(), 0);
+    std::vector<bool> visited(lightLevels_.size(), false);
+    std::queue<glm::ivec3> queue;
 
-void World::recomputeAllColumnLight() {
+    // Seed every column from the top: light stays at full strength
+    // straight down through open sky until it hits the first solid
+    // (non-transparent) block, which is as far as this initial pass
+    // goes - anything below that (a roofed-over gap, the far side of
+    // an opening) only gets lit by the BFS spreading sideways/upward
+    // from these seeds afterward.
     for (int z = 0; z < SizeZ; ++z) {
         for (int x = 0; x < SizeX; ++x) {
-            recomputeColumnLight(x, z);
+            for (int y = SizeY - 1; y >= 0; --y) {
+                if (!isTransparent(getBlock(x, y, z))) {
+                    break;
+                }
+                size_t idx = voxelIndex(x, y, z);
+                lightLevels_[idx] = static_cast<uint8_t>(MaxLight);
+                visited[idx] = true;
+                queue.push(glm::ivec3(x, y, z));
+            }
+        }
+    }
+
+    static const glm::ivec3 kNeighbors[6] = {
+        {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1},
+    };
+
+    while (!queue.empty()) {
+        glm::ivec3 cell = queue.front();
+        queue.pop();
+        int level = lightLevels_[voxelIndex(cell.x, cell.y, cell.z)];
+        if (level <= 1) {
+            continue; // neighbors would only get level 0, nothing to spread
+        }
+        for (const glm::ivec3& off : kNeighbors) {
+            glm::ivec3 n = cell + off;
+            if (n.x < 0 || n.x >= SizeX || n.y < 0 || n.y >= SizeY || n.z < 0 || n.z >= SizeZ) {
+                continue;
+            }
+            size_t nIdx = voxelIndex(n.x, n.y, n.z);
+            if (visited[nIdx] || !isTransparent(getBlock(n.x, n.y, n.z))) {
+                continue;
+            }
+            visited[nIdx] = true;
+            lightLevels_[nIdx] = static_cast<uint8_t>(level - 1);
+            queue.push(n);
         }
     }
 }
@@ -60,7 +99,13 @@ float World::skylightAt(int x, int y, int z) const {
     if (x < 0 || x >= SizeX || z < 0 || z >= SizeZ) {
         return 1.0f;
     }
-    return (y > topOpaqueY_[columnIndex(x, z)]) ? 1.0f : 0.0f;
+    if (y >= SizeY) {
+        return 1.0f; // above the world ceiling: open sky
+    }
+    if (y < 0) {
+        return 0.0f; // below the world floor
+    }
+    return static_cast<float>(lightLevels_[voxelIndex(x, y, z)]) / static_cast<float>(MaxLight);
 }
 
 BlockType World::getBlock(int x, int y, int z) const {
@@ -82,16 +127,13 @@ void World::setBlock(int x, int y, int z, BlockType type) {
     int lz = z - cz * Chunk::SizeZ;
 
     chunkAt(cx, cz).setBlock(lx, y, lz, type);
-    recomputeColumnLight(x, z);
-    rebuildChunkMesh(cx, cz);
 
-    // An edit right on a chunk seam changes what its neighbor across
-    // that seam sees too (their shared faces may now need culling, or
-    // un-culling), so that neighbor's mesh needs rebuilding as well.
-    if (lx == 0 && cx > 0) rebuildChunkMesh(cx - 1, cz);
-    if (lx == Chunk::SizeX - 1 && cx < ChunksX - 1) rebuildChunkMesh(cx + 1, cz);
-    if (lz == 0 && cz > 0) rebuildChunkMesh(cx, cz - 1);
-    if (lz == Chunk::SizeZ - 1 && cz < ChunksZ - 1) rebuildChunkMesh(cx, cz + 1);
+    // Light can spread arbitrarily far from a single edit (breaking
+    // into a sealed cavern floods the whole thing), so every chunk's
+    // lighting and mesh needs a fresh look, not just the edited one
+    // and its immediate seam neighbors.
+    computeLighting();
+    rebuildAllChunkMeshes();
 }
 
 void World::rebuildChunkMesh(int cx, int cz) {
