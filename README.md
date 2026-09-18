@@ -14,10 +14,16 @@ into.
   on ground, refuses to walk you off an edge with nothing underneath
   (and overrides sprint, same as vanilla). `R` teleports you back to
   the spawn point.
-- A 2x2 grid of 32x48x32 chunks (64x48x64 blocks total) generated from
-  one continuous value-noise heightmap, with grass/dirt/stone layers,
-  sandy beaches at low elevation, and a scattering of trees; chunks
-  are meshed against each other so there's no seam at the borders.
+- A 4x4 grid of 32x48x32 chunks (128x48x128 blocks total) generated
+  from one continuous value-noise heightmap, with grass/dirt/stone
+  layers, sandy beaches at low elevation, and a scattering of trees;
+  chunks are meshed against each other so there's no seam at the
+  borders.
+- Simple skylight: any spot with a clear line straight up to the world
+  ceiling (through nothing but air/leaves/glass) is lit normally;
+  anything under solid cover - a mined-out pit, a roofed-over tunnel -
+  is darkened instead, so digging into a hillside gets visibly darker
+  as soon as there's rock over your head.
 - Textured cubes: an 11-tile texture atlas (grass, dirt, stone, sand,
   wood, planks, wool, glass, leaves) is generated procedurally at
   startup, so the repo ships with zero external image assets. Glass is
@@ -44,7 +50,7 @@ into.
 
 ## What's deliberately *not* here yet
 
-This is an MVP, not a full clone. No infinite world (just a fixed 2x2
+This is an MVP, not a full clone. No infinite world (just a fixed 4x4
 chunk grid), no inventory or crafting, no mobs, no swimming. The code
 is structured (`Chunk`, `World`, `Camera`, `Player`, `Shader`,
 `TextureAtlas`) so those are natural next additions rather than
@@ -151,18 +157,28 @@ sudo apt install libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
   glass make nearby solid faces render as if you could see through
   them.) For every solid block, each of its 6 faces is only emitted if
   the neighboring block in that direction is transparent (air, or a
-  different block of leaves/glass). `generate()` and `rebuildMesh()`
-  both work in world-space coordinates (given the chunk's own offset),
-  so terrain and face culling are both continuous across chunk borders
-  instead of repeating or seaming.
+  different block of leaves/glass); each emitted face also carries a
+  per-vertex light value read from `World::skylightAt()` for whatever
+  cell the face opens onto, so a face fronting an unlit pocket comes
+  out darkened rather than lit the same as the surface. `generate()`
+  and `rebuildMesh()` both work in world-space coordinates (given the
+  chunk's own offset), so terrain and face culling are both continuous
+  across chunk borders instead of repeating or seaming.
 - **`World`** - owns a `ChunksX x ChunksZ` grid of `Chunk`s (currently
-  2x2) behind a `getBlock`/`setBlock`/`raycast`/`render` interface that
+  4x4) behind a `getBlock`/`setBlock`/`raycast`/`render` interface that
   doesn't care how many chunks there are. `getBlock`/`setBlock`
   translate a world coordinate to (chunk, local coordinate); `setBlock`
   also rebuilds any neighboring chunk whose shared faces the edit could
   have changed. `raycast()` marches in small steps along the camera's
   look vector to find the targeted block and the empty cell just before
-  it (for placement).
+  it (for placement). It also keeps a per-column skylight cache: for
+  every (x,z) it tracks the y of the highest non-transparent block,
+  and `skylightAt(x,y,z)` is lit (1.0) only above that height - a
+  deliberately simple vertical model rather than full 3D light
+  propagation, but enough to make a mined-out pit or a roofed-over
+  tunnel read as dark. `setBlock` recomputes just the edited column
+  before remeshing, and `remesh()` (used on load) recomputes every
+  column first.
 - **`Highlight`** - draws a blinking wireframe cube (12 `GL_LINES`
   edges, its own unlit shader) around the targeted block, slightly
   larger than a unit cube so it doesn't z-fight with the block's own

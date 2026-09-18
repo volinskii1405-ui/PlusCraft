@@ -9,10 +9,11 @@ inline const char* kBlockVertexShader = R"glsl(
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
 layout (location = 2) in vec2 aTexCoord;
+layout (location = 3) in float aLight;
 
 out vec3 vNormal;
 out vec2 vTexCoord;
-out float vAO;
+out float vLight;
 
 uniform mat4 uView;
 uniform mat4 uProjection;
@@ -21,6 +22,7 @@ void main() {
     gl_Position = uProjection * uView * vec4(aPos, 1.0);
     vNormal = aNormal;
     vTexCoord = aTexCoord;
+    vLight = aLight;
 }
 )glsl";
 
@@ -28,6 +30,7 @@ inline const char* kBlockFragmentShader = R"glsl(
 #version 330 core
 in vec3 vNormal;
 in vec2 vTexCoord;
+in float vLight;
 
 out vec4 FragColor;
 
@@ -42,6 +45,12 @@ void main() {
     vec3 lightDir = normalize(vec3(0.4, 1.0, 0.3));
     float diffuse = max(dot(normalize(vNormal), lightDir), 0.0);
     float light = 0.45 + 0.55 * diffuse;
+
+    // vLight is 1.0 with a clear line to the sky, 0.0 fully enclosed
+    // (see World::skylightAt) - darken shadowed/underground faces
+    // instead of lighting them the same as everything outside.
+    float shadowFloor = 0.12;
+    light *= mix(shadowFloor, 1.0, vLight);
 
     FragColor = vec4(texColor.rgb * light, texColor.a);
 }

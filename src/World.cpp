@@ -8,6 +8,7 @@ World::World(uint32_t seed, bool generateTerrain) {
             chunks_[static_cast<size_t>(cz) * ChunksX + cx] = std::make_unique<Chunk>();
         }
     }
+    topOpaqueY_.assign(static_cast<size_t>(SizeX) * SizeZ, -1);
 
     if (!generateTerrain) {
         // Caller (WorldIO) will fill every chunk's blocks via
@@ -28,11 +29,38 @@ World::World(uint32_t seed, bool generateTerrain) {
 }
 
 void World::remesh() {
+    recomputeAllColumnLight();
     for (int cz = 0; cz < ChunksZ; ++cz) {
         for (int cx = 0; cx < ChunksX; ++cx) {
             rebuildChunkMesh(cx, cz);
         }
     }
+}
+
+void World::recomputeColumnLight(int x, int z) {
+    int top = -1;
+    for (int y = SizeY - 1; y >= 0; --y) {
+        if (!isTransparent(getBlock(x, y, z))) {
+            top = y;
+            break;
+        }
+    }
+    topOpaqueY_[columnIndex(x, z)] = static_cast<int16_t>(top);
+}
+
+void World::recomputeAllColumnLight() {
+    for (int z = 0; z < SizeZ; ++z) {
+        for (int x = 0; x < SizeX; ++x) {
+            recomputeColumnLight(x, z);
+        }
+    }
+}
+
+float World::skylightAt(int x, int y, int z) const {
+    if (x < 0 || x >= SizeX || z < 0 || z >= SizeZ) {
+        return 1.0f;
+    }
+    return (y > topOpaqueY_[columnIndex(x, z)]) ? 1.0f : 0.0f;
 }
 
 BlockType World::getBlock(int x, int y, int z) const {
@@ -54,6 +82,7 @@ void World::setBlock(int x, int y, int z, BlockType type) {
     int lz = z - cz * Chunk::SizeZ;
 
     chunkAt(cx, cz).setBlock(lx, y, lz, type);
+    recomputeColumnLight(x, z);
     rebuildChunkMesh(cx, cz);
 
     // An edit right on a chunk seam changes what its neighbor across

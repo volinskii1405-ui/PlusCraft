@@ -43,7 +43,7 @@ Face faceFromIndex(int i) {
     }
 }
 
-void pushVertex(std::vector<float>& verts, glm::vec3 pos, glm::vec3 normal, glm::vec2 uv) {
+void pushVertex(std::vector<float>& verts, glm::vec3 pos, glm::vec3 normal, glm::vec2 uv, float light) {
     verts.push_back(pos.x);
     verts.push_back(pos.y);
     verts.push_back(pos.z);
@@ -52,6 +52,7 @@ void pushVertex(std::vector<float>& verts, glm::vec3 pos, glm::vec3 normal, glm:
     verts.push_back(normal.z);
     verts.push_back(uv.x);
     verts.push_back(uv.y);
+    verts.push_back(light);
 }
 
 void setUpMeshBuffers(GLuint& vao, GLuint& vbo) {
@@ -61,13 +62,15 @@ void setUpMeshBuffers(GLuint& vao, GLuint& vbo) {
     glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
-    const GLsizei stride = 8 * sizeof(float);
+    const GLsizei stride = 9 * sizeof(float);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(6 * sizeof(float)));
     glEnableVertexAttribArray(2);
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(8 * sizeof(float)));
+    glEnableVertexAttribArray(3);
 
     glBindVertexArray(0);
 }
@@ -200,10 +203,19 @@ void Chunk::rebuildMesh(const TextureAtlas& atlas, const World& world, int world
                     // chunk's edges, the neighbor lives in an adjacent
                     // chunk, and World is the only thing that knows
                     // about those.
-                    BlockType neighbor = world.getBlock(worldOffsetX + x + off.dx, y + off.dy, worldOffsetZ + z + off.dz);
+                    int nx = worldOffsetX + x + off.dx;
+                    int ny = y + off.dy;
+                    int nz = worldOffsetZ + z + off.dz;
+                    BlockType neighbor = world.getBlock(nx, ny, nz);
                     if (!(isTransparent(neighbor) && neighbor != type)) {
                         continue;
                     }
+
+                    // Lit by whatever the face actually opens onto, not
+                    // the solid block behind it - a cave wall next to an
+                    // unlit air pocket should read dark even though the
+                    // block itself sits under open sky elsewhere.
+                    float light = world.skylightAt(nx, ny, nz);
 
                     Face face = faceFromIndex(f);
                     TextureAtlas::UV uv = atlas.uvFor(type, face);
@@ -222,18 +234,18 @@ void Chunk::rebuildMesh(const TextureAtlas& atlas, const World& world, int world
 
                     const int triOrder[6] = {0, 1, 2, 0, 2, 3};
                     for (int t : triOrder) {
-                        pushVertex(dest, quadPos[t], def.normal, quadUV[t]);
+                        pushVertex(dest, quadPos[t], def.normal, quadUV[t], light);
                     }
                 }
             }
         }
     }
 
-    vertexCount_ = static_cast<GLsizei>(verts.size() / 8);
+    vertexCount_ = static_cast<GLsizei>(verts.size() / 9);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_);
     glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(verts.size() * sizeof(float)), verts.data(), GL_DYNAMIC_DRAW);
 
-    vertexCountTranslucent_ = static_cast<GLsizei>(translucentVerts.size() / 8);
+    vertexCountTranslucent_ = static_cast<GLsizei>(translucentVerts.size() / 9);
     glBindBuffer(GL_ARRAY_BUFFER, vboTranslucent_);
     glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(translucentVerts.size() * sizeof(float)), translucentVerts.data(), GL_DYNAMIC_DRAW);
 }
