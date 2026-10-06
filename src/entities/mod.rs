@@ -1,6 +1,9 @@
 //! Сущности: выпавшие предметы (и мобы — см. `mob.rs`).
 
 pub mod mesh;
+pub mod mob;
+pub mod path;
+pub mod spawn;
 
 use glam::{DVec3, Mat4, Quat, Vec3};
 use serde::{Deserialize, Serialize};
@@ -81,6 +84,8 @@ impl ItemEntity {
 #[derive(Default, Serialize, Deserialize)]
 pub struct Entities {
     pub items: Vec<ItemEntity>,
+    #[serde(default)]
+    pub mobs: Vec<mob::Mob>,
 }
 
 impl Entities {

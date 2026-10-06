@@ -290,6 +290,84 @@ impl SelfTest {
                 self.check("chest_drops", diamonds == 5, format!("выпало алмазов: {diamonds}"));
                 self.next();
             }
+            // Моб атакует игрока в выживании.
+            16 => {
+                game.player.mode = GameMode::Survival;
+                game.player.health = 20.0;
+                // Чистая площадка 11×11 с каменным полом вокруг игрока.
+                let f = Self::feet(game);
+                game.run_command(&format!("/fill {} {} {} {} {} {} air", f.x - 5, f.y, f.z - 5, f.x + 5, f.y + 4, f.z + 5));
+                game.run_command(&format!("/fill {} {} {} {} {} {} stone", f.x - 5, f.y - 1, f.z - 5, f.x + 5, f.y - 1, f.z + 5));
+                game.player.pos = DVec3::new(f.x as f64 + 0.5, f.y as f64, f.z as f64 + 0.5);
+                game.player.prev_pos = game.player.pos;
+                let p = game.player.pos + DVec3::new(3.0, 0.2, 0.0);
+                let m = crate::entities::mob::Mob::new(
+                    crate::entities::mob::MobKind::Spider,
+                    p,
+                    crate::entities::mob::Mutation::default(),
+                    &mut crate::world::noise::Rng::new(1),
+                );
+                game.entities.mobs.push(m);
+                self.next();
+            }
+            17 => {
+                if game.player.health < 20.0 {
+                    self.check("mob_attacks", true, format!("паук атаковал, здоровье {:.0}", game.player.health));
+                    self.next();
+                } else if self.timer > 8.0 {
+                    let info: Vec<String> = game
+                        .entities
+                        .mobs
+                        .iter()
+                        .filter(|m| m.kind == crate::entities::mob::MobKind::Spider)
+                        .map(|m| format!("{:?} pos {:.1},{:.1},{:.1} dist {:.1}", m.state, m.pos.x, m.pos.y, m.pos.z, m.pos.distance(game.player.pos)))
+                        .collect();
+                    self.check("mob_attacks", false, format!("паук не атаковал за 8 с; игрок {:.1?}; {}", game.player.pos, info.join("; ")));
+                    self.next();
+                }
+            }
+            // Игрок убивает моба мечом — выпадает добыча.
+            18 => {
+                game.player.health = 20.0;
+                game.player.inventory.slots[0] = Some(ItemStack::new(item::tool_id(block::ToolKind::Sword, 5), 1));
+                game.player.inventory.selected = 0;
+                let items_before = game.entities.items.len();
+                let n_before = game.entities.mobs.len();
+                for m in &mut game.entities.mobs {
+                    m.hurt(100.0, game.player.pos);
+                }
+                self.expect_item = items_before as u16;
+                self.check("mob_damage", game.entities.mobs.iter().all(|m| m.is_dead()), format!("мобов убито: {n_before}"));
+                self.next();
+            }
+            19 => {
+                if self.timer > 2.0 {
+                    let dead = game.entities.mobs.iter().filter(|m| m.is_dead()).count();
+                    let dropped = game.entities.items.len() > self.expect_item as usize;
+                    self.check(
+                        "mob_death_removed",
+                        dead == 0 && dropped,
+                        format!("мёртвых осталось: {dead}, предметов на земле: {}", game.entities.items.len()),
+                    );
+                    self.next();
+                }
+            }
+            // Ночью в темноте появляются враждебные мобы.
+            20 => {
+                game.day_time = 0.75;
+                self.next();
+            }
+            21 => {
+                let hostile = game.entities.mobs.iter().filter(|m| m.kind.hostile()).count();
+                if hostile > 0 {
+                    let kinds: Vec<String> = game.entities.mobs.iter().map(|m| m.display_name()).collect();
+                    self.check("night_spawn", true, format!("за {:.0} с появились: {}", self.timer, kinds.join(", ")));
+                    self.next();
+                } else if self.timer > 30.0 {
+                    self.check("night_spawn", false, "за 30 с ночью никто не появился".into());
+                    self.next();
+                }
+            }
             _ => {
                 let passed = self.results.iter().filter(|r| r.1).count();
                 log::info!("[selftest] итог: {passed}/{} проверок пройдено", self.results.len());

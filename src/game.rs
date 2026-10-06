@@ -8,6 +8,8 @@ use crate::blockentity::BlockEntities;
 use crate::camera::Camera;
 use crate::crafting::Recipes;
 use crate::entities::mesh::{self, pack_light};
+use crate::entities::mob::{MobEvent, MobKind};
+use crate::entities::spawn::{self, SpawnRules};
 use crate::entities::{self, Entities};
 use crate::input::InputState;
 use crate::inventory::{ItemStack, HOTBAR};
@@ -74,6 +76,11 @@ pub struct Game {
     pub block_entities: BlockEntities,
     /// Открытый экран инвентаря/контейнера.
     pub container: Option<ContainerUi>,
+    ai_timer: f32,
+    spawn_timer: f32,
+    last_alpha: f64,
+    /// Моб под прицелом (индекс в entities.mobs).
+    pub target_mob: Option<usize>,
     fps: f32,
     fps_acc: f32,
     fps_frames: u32,
@@ -176,6 +183,10 @@ impl Game {
             recipes: Recipes::load(),
             block_entities: BlockEntities::default(),
             container: None,
+            ai_timer: 0.0,
+            spawn_timer: 0.0,
+            last_alpha: 0.0,
+            target_mob: None,
             fps: 0.0,
             fps_acc: 0.0,
             fps_frames: 0,
@@ -196,7 +207,7 @@ impl Game {
         let parts: Vec<&str> = cmd.split_whitespace().collect();
         let Some(&name) = parts.first() else { return String::new() };
         match name {
-            "help" | "помощь" => "Команды: /time day|night|noon|midnight|0..1, /gamemode s|c, /tp x y z, /give предмет [n], /setblock x y z блок, /heal, /kill, /seed".into(),
+            "help" | "помощь" => "Команды: /time day|night|noon|midnight|0..1, /gamemode s|c, /tp x y z, /give предмет [n], /setblock x y z блок, /fill x1 y1 z1 x2 y2 z2 блок, /summon моб [мутация], /heal, /kill, /seed".into(),
             "time" => {
                 let t = match parts.get(1).copied() {
                     Some("day") | Some("день") => 0.05,
@@ -258,6 +269,52 @@ impl Game {
                 "Вы погибли".into()
             }
             "seed" => format!("Seed: {}", self.world.seed),
+            "summon" => {
+                let kind = match parts.get(1).copied() {
+                    Some("grazer") => MobKind::Grazer,
+                    Some("boar") => MobKind::Boar,
+                    Some("crawler") => MobKind::Crawler,
+                    Some("spider") => MobKind::Spider,
+                    Some("gloom") => MobKind::Gloom,
+                    _ => return "Использование: /summon grazer|boar|crawler|spider|gloom [мутация 0..3] [x y z]".into(),
+                };
+                let level = parts.get(2).and_then(|s| s.parse::<u8>().ok()).unwrap_or(0).min(3);
+                let f = self.camera.forward_flat().as_dvec3();
+                let coords: Vec<f64> = parts.iter().skip(3).take(3).filter_map(|p| p.parse().ok()).collect();
+                let p = if coords.len() == 3 {
+                    DVec3::new(coords[0], coords[1], coords[2])
+                } else {
+                    self.player.pos + f * 4.0 + DVec3::new(0.0, 0.5, 0.0)
+                };
+                let m = crate::entities::mob::Mob::new(kind, p, crate::entities::mob::Mutation { level }, &mut self.rng);
+                let name = m.display_name();
+                self.entities.mobs.push(m);
+                format!("Призван: {name}")
+            }
+            "fill" => {
+                let v: Vec<i32> = parts.iter().skip(1).take(6).filter_map(|p| p.parse().ok()).collect();
+                let (Some(key), true) = (parts.get(7), v.len() == 6) else { return "Использование: /fill x1 y1 z1 x2 y2 z2 блок".into() };
+                let b = if *key == "air" { Some(id::AIR) } else { block::by_key(key) };
+                let Some(b) = b else { return format!("Нет блока «{key}»") };
+                let (x0, x1) = (v[0].min(v[3]), v[0].max(v[3]));
+                let (y0, y1) = (v[1].min(v[4]), v[1].max(v[4]));
+                let (z0, z1) = (v[2].min(v[5]), v[2].max(v[5]));
+                let vol = (x1 - x0 + 1) as i64 * (y1 - y0 + 1) as i64 * (z1 - z0 + 1) as i64;
+                if vol > 65536 {
+                    return format!("Слишком большой объём: {vol} (макс. 65536)");
+                }
+                let mut n = 0;
+                for y in y0..=y1 {
+                    for z in z0..=z1 {
+                        for x in x0..=x1 {
+                            if self.world.set(x, y, z, block::make(b, 0)) {
+                                n += 1;
+                            }
+                        }
+                    }
+                }
+                format!("Заполнено блоков: {n}")
+            }
             "ui" => {
                 // Отладка: ставит контейнер рядом с игроком и открывает его.
                 let p = self.player.pos.floor().as_ivec3() + IVec3::new(0, 0, -2);
@@ -403,9 +460,16 @@ impl Game {
         }
         self.accumulator += dt as f64;
         let mut steps = 0;
+        let mut mob_events = Vec::new();
+        // Враждебные мобы не охотятся на игрока в креативе.
+        let player_alive = !self.player.is_dead() && !self.player.creative();
         while self.accumulator >= PHYSICS_DT && steps < 15 {
             self.player.step(&self.world, mv, PHYSICS_DT);
             self.entities.step_items(&self.world, PHYSICS_DT);
+            let pp = self.player.pos;
+            for m in &mut self.entities.mobs {
+                m.step(&self.world, pp, player_alive, PHYSICS_DT, &mut mob_events);
+            }
             self.accumulator -= PHYSICS_DT;
             steps += 1;
         }
@@ -415,6 +479,7 @@ impl Game {
         self.player.tick_status(&self.world, dt);
         self.pickup_items();
         self.tick_furnaces(dt);
+        self.update_mobs(dt, settings, mob_events);
 
         // Камера: интерполяция между шагами физики, плавный присед.
         let alpha = self.accumulator / PHYSICS_DT;
@@ -434,6 +499,13 @@ impl Game {
         } else {
             physics::raycast(&self.world, eye, fwd, self.reach(), physics::pickable)
         };
+        self.target_mob = self.ray_mob(self.reach() as f64).and_then(|(i, t)| {
+            if t < self.target.map(|h| h.dist as f64).unwrap_or(f64::MAX) {
+                Some(i)
+            } else {
+                None
+            }
+        });
         self.use_cooldown = (self.use_cooldown - dt).max(0.0);
         self.attack_cooldown = (self.attack_cooldown - dt).max(0.0);
         self.hand_swing = (self.hand_swing - dt * 4.0).max(0.0);
@@ -461,6 +533,16 @@ impl Game {
         let held = input.down(c, Action::Attack);
         if input.pressed(c, Action::Attack) {
             self.hand_swing = 1.0;
+            // Моб ближе блока — бьём моба.
+            let block_dist = self.target.map(|h| h.dist as f64).unwrap_or(f64::MAX);
+            if let Some((idx, t)) = self.ray_mob(self.reach() as f64) {
+                if t < block_dist && self.attack_cooldown <= 0.0 {
+                    self.attack_mob(idx);
+                    self.attack_cooldown = 0.45;
+                    self.mining = None;
+                    return;
+                }
+            }
         }
         let Some(hit) = self.target else {
             self.mining = None;
@@ -638,6 +720,130 @@ impl Game {
             }
         }
         self.try_place(hit);
+    }
+
+    /// ИИ, спавн, деспавн, смерть мобов и их воздействие на игрока.
+    fn update_mobs(&mut self, dt: f32, settings: &Settings, events: Vec<MobEvent>) {
+        let daylight = crate::sky::sky_state(self.day_time).daylight;
+        let pp = self.player.pos;
+        let alive = !self.player.is_dead() && !self.player.creative();
+        for e in events {
+            match e {
+                MobEvent::HitPlayer { damage, from } => {
+                    let dmg = damage * settings.gameplay.difficulty.damage_mul() as f32;
+                    if dmg > 0.0 && !self.player.creative() {
+                        self.player.damage(dmg);
+                        let mut d = self.player.pos - from;
+                        d.y = 0.0;
+                        self.player.vel += d.normalize_or_zero() * 6.0 + DVec3::new(0.0, 4.5, 0.0);
+                    }
+                }
+                MobEvent::SnuffTorch(p) => {
+                    if self.world.get_id(p.x, p.y, p.z) == id::TORCH {
+                        self.world.set(p.x, p.y, p.z, block::make(id::BURNT_TORCH, 0));
+                    }
+                }
+            }
+        }
+        // Мирная сложность — враждебных нет.
+        if settings.gameplay.difficulty == crate::settings::Difficulty::Peaceful {
+            self.entities.mobs.retain(|m| !m.kind.hostile());
+        }
+        self.ai_timer += dt;
+        if self.ai_timer >= 0.1 {
+            let step = self.ai_timer;
+            self.ai_timer = 0.0;
+            for m in &mut self.entities.mobs {
+                m.think(&self.world, pp, alive, step, &mut self.rng);
+                // Ползуны горят на солнце.
+                if m.burns_in_daylight() && daylight > 0.7 && !m.is_dead() {
+                    let (sky, _) = self.world.light(m.pos.x.floor() as i32, (m.pos.y + 1.6).floor() as i32, m.pos.z.floor() as i32);
+                    if sky >= 15 {
+                        m.health -= 1.0 * step * 2.0;
+                        m.burn_timer = 0.3;
+                    }
+                }
+            }
+            // Мобы не слипаются.
+            let n = self.entities.mobs.len();
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    let (a, b) = self.entities.mobs.split_at_mut(j);
+                    let (x, y) = (&mut a[i], &mut b[0]);
+                    let mut d = x.pos - y.pos;
+                    d.y = 0.0;
+                    let l = d.length();
+                    if l < 0.7 && l > 1e-4 {
+                        let push = d / l * (0.7 - l) * 0.5;
+                        x.vel += push * 4.0;
+                        y.vel -= push * 4.0;
+                    }
+                }
+            }
+        }
+        self.spawn_timer += dt;
+        if self.spawn_timer >= 0.5 {
+            self.spawn_timer = 0.0;
+            let rules = SpawnRules {
+                daylight: daylight as f32,
+                difficulty: settings.gameplay.difficulty,
+                mob_difficulty: settings.gameplay.mob_difficulty,
+            };
+            spawn::try_spawn(&self.world, &mut self.entities.mobs, pp, &rules, &mut self.rng);
+        }
+        spawn::despawn(&mut self.entities.mobs, pp, dt, &mut self.rng);
+        // Погибшие: дроп после анимации падения.
+        let mut drops = Vec::new();
+        self.entities.mobs.retain(|m| {
+            if m.is_dead() && m.dead_timer > 0.8 {
+                drops.push((m.kind, m.pos));
+                false
+            } else {
+                true
+            }
+        });
+        for (kind, pos) in drops {
+            for st in kind.drops(&mut self.rng) {
+                self.entities.spawn_item(st, pos + DVec3::new(0.0, 0.5, 0.0), DVec3::new(0.0, 3.0, 0.0));
+            }
+        }
+    }
+
+    /// Ближайший моб на луче взгляда (дистанция).
+    fn ray_mob(&self, max: f64) -> Option<(usize, f64)> {
+        let eye = self.player.eye_pos();
+        let dir = self.camera.forward();
+        let mut best: Option<(usize, f64)> = None;
+        for (i, m) in self.entities.mobs.iter().enumerate() {
+            if m.is_dead() {
+                continue;
+            }
+            if let Some(t) = m.ray_hit(eye, dir, max) {
+                if best.map(|b| t < b.1).unwrap_or(true) {
+                    best = Some((i, t));
+                }
+            }
+        }
+        best
+    }
+
+    /// Удар по мобу оружием из руки.
+    fn attack_mob(&mut self, idx: usize) {
+        let held = self.player.inventory.selected_stack();
+        let (dmg, is_tool) = match held.and_then(|s| item::def(s.item)).map(|d| d.kind) {
+            Some(ItemKind::Tool { damage, .. }) => (damage, true),
+            _ => (1.0, false),
+        };
+        let crit = !self.player.on_ground && self.player.vel.y < 0.0;
+        let dmg = if crit { dmg * 1.5 } else { dmg };
+        let from = self.player.pos;
+        if let Some(m) = self.entities.mobs.get_mut(idx) {
+            m.hurt(dmg, from);
+        }
+        if is_tool && !self.player.creative() && self.player.inventory.damage_selected(1) {
+            self.message("Инструмент сломался!");
+        }
+        self.player.add_exhaustion(0.1);
     }
 
     /// Плавка во всех печах; горящая печь светится (смена блока).
@@ -874,6 +1080,12 @@ impl Game {
         let mut g = FrameGeometry::default();
         let cam = self.camera.pos;
         self.entities.build_item_mesh(&self.world, cam, self.time as f32, &mut g.entities);
+        let alpha = (self.accumulator / PHYSICS_DT).clamp(0.0, 1.0);
+        for m in &self.entities.mobs {
+            if m.pos.distance(cam) < 96.0 {
+                m.build_mesh(&self.world, cam, alpha, &mut g.entities);
+            }
+        }
 
         if let Some(hit) = self.target {
             let min = (hit.pos.as_dvec3() - cam).as_vec3() - Vec3::splat(0.002);
@@ -926,6 +1138,15 @@ impl Game {
         hud::draw_crosshair(ui);
         hud::draw_hotbar(ui, &self.player);
         hud::draw_status(ui, &self.player);
+        if let Some(m) = self.target_mob.and_then(|i| self.entities.mobs.get(i)) {
+            let s = ui.scale;
+            let text = format!("{}  {:.0}/{:.0}", m.display_name(), m.health.max(0.0), m.max_health);
+            ui.text_centered(ui.width / 2.0, ui.height / 2.0 + 16.0 * s, &text, 0.85, if m.kind.hostile() { [255, 170, 160, 255] } else { [200, 255, 200, 255] });
+            let w = 80.0 * s;
+            let frac = (m.health / m.max_health).clamp(0.0, 1.0);
+            ui.rect(ui.width / 2.0 - w / 2.0, ui.height / 2.0 + 36.0 * s, w, 4.0 * s, [0, 0, 0, 180]);
+            ui.rect(ui.width / 2.0 - w / 2.0, ui.height / 2.0 + 36.0 * s, w * frac, 4.0 * s, [220, 40, 40, 255]);
+        }
 
         // Сообщения.
         let s = ui.scale;
@@ -982,7 +1203,12 @@ impl Game {
                 stats.quads_drawn
             ),
             format!("Задачи: генерация {gen_q}, меши {mesh_q}, потоков {}", self.world.worker_count()),
-            format!("Сущности: предметов {}", self.entities.items.len()),
+            format!(
+                "Сущности: предметов {}, мобов {} (враждебных {})",
+                self.entities.items.len(),
+                self.entities.mobs.len(),
+                self.entities.mobs.iter().filter(|m| m.kind.hostile()).count()
+            ),
             format!("Seed: {}", self.world.seed),
             format!("GPU: {}", renderer.device_name()),
         ];
