@@ -247,6 +247,49 @@ impl SelfTest {
                     self.next();
                 }
             }
+            // Печь: плавка железа на угле, горящая печь меняет блок.
+            13 => {
+                let f = Self::feet(game);
+                let p = f + IVec3::new(0, 0, 2);
+                game.world.set(p.x, p.y, p.z, block::make(id::FURNACE, 4));
+                let fur = game.block_entities.furnace_mut(p);
+                fur.input = Some(ItemStack::new(item::id::RAW_IRON, 1));
+                fur.fuel = Some(ItemStack::new(item::id::COAL, 1));
+                self.next();
+            }
+            14 => {
+                let p = Self::feet(game) + IVec3::new(0, 0, 2);
+                if self.timer > 1.0 && self.ground_y == 0.0 {
+                    // Отметим, что печь загорелась.
+                    self.ground_y = if game.world.get_id(p.x, p.y, p.z) == id::FURNACE_LIT { 1.0 } else { -1.0 };
+                }
+                if self.timer > 10.0 {
+                    let out = game.block_entities.furnace_mut(p).output;
+                    let lit = self.ground_y > 0.0;
+                    self.check(
+                        "furnace_smelt",
+                        out.map(|o| o.item) == Some(item::id::IRON_INGOT) && lit,
+                        format!("выход печи: {:?}, горела: {lit}", out.map(|o| item::name(o.item))),
+                    );
+                    self.next();
+                }
+            }
+            // Сундук: содержимое выпадает при разрушении.
+            15 => {
+                let p = Self::feet(game) + IVec3::new(2, 0, 0);
+                game.world.set(p.x, p.y, p.z, block::make(id::CHEST, 4));
+                let chest = game.block_entities.chest_mut(p, crate::blockentity::Chest::default);
+                chest.slots[3] = Some(ItemStack::new(item::id::DIAMOND, 5));
+                let before = game.entities.items.len();
+                game.break_block(p, true);
+                let diamonds: u32 = game.entities.items[before..]
+                    .iter()
+                    .filter(|i| i.stack.item == item::id::DIAMOND)
+                    .map(|i| i.stack.count as u32)
+                    .sum();
+                self.check("chest_drops", diamonds == 5, format!("выпало алмазов: {diamonds}"));
+                self.next();
+            }
             _ => {
                 let passed = self.results.iter().filter(|r| r.1).count();
                 log::info!("[selftest] итог: {passed}/{} проверок пройдено", self.results.len());

@@ -1,0 +1,109 @@
+// Рецепты PlusCraft. Файл читается при запуске игры — рецепты можно
+// добавлять и менять без пересборки.
+//
+// shaped    — рецепт с узором (до 3×3). Символы узора задаются в key;
+//             пробел — пустая клетка. Можно указать несколько вариантов
+//             ингредиента через «|», например "planks|spruce_planks".
+//             Узор можно сдвигать по сетке и зеркалить по горизонтали.
+// shapeless — набор ингредиентов в любом порядке.
+// smelting  — плавка в печи: input -> output, time — секунды.
+// fuels     — топливо для печи: burn — секунды горения.
+(
+    shaped: [
+        // --- базовые ---
+        (pattern: ["P", "P"], key: {'P': "planks|spruce_planks"}, result: "stick", count: 4),
+        (pattern: ["PP", "PP"], key: {'P': "planks|spruce_planks"}, result: "crafting_table", count: 1),
+        (pattern: ["CCC", "C C", "CCC"], key: {'C': "cobblestone|mossy_cobblestone"}, result: "furnace", count: 1),
+        (pattern: ["PPP", "P P", "PPP"], key: {'P': "planks|spruce_planks"}, result: "chest", count: 1),
+        (pattern: ["C", "S"], key: {'C': "coal|charcoal", 'S': "stick"}, result: "torch", count: 4),
+        (pattern: ["S S", "SSS", "S S"], key: {'S': "stick"}, result: "ladder", count: 3),
+        (pattern: ["I I", "ISI", "I I"], key: {'I': "iron_ingot", 'S': "stick"}, result: "rail", count: 16),
+        // Крепь — удерживает породу от обвала (уникальная механика).
+        (pattern: ["PPP", "S S", "S S"], key: {'P': "planks|spruce_planks", 'S': "stick"}, result: "support", count: 4),
+        (pattern: ["SS", "SS"], key: {'S': "sand"}, result: "sandstone", count: 1),
+        (pattern: ["SS", "SS"], key: {'S': "stone"}, result: "stone_bricks", count: 4),
+        (pattern: ["SS", "SS"], key: {'S': "string"}, result: "wool", count: 1),
+        (pattern: ["I I", " I "], key: {'I': "iron_ingot"}, result: "bucket", count: 1),
+        (pattern: ["WWW"], key: {'W': "wheat"}, result: "bread", count: 1),
+        // Резонатор — эхолокация пустот (уникальная механика).
+        (pattern: [" R ", " C ", " S "], key: {'R': "resonite_shard", 'C': "copper_ingot", 'S': "stick"}, result: "resonator", count: 1),
+        (pattern: [" R ", "RGR", " R "], key: {'R': "resonite_shard", 'G': "glass"}, result: "resonite_lamp", count: 1),
+
+        // --- инструменты: 4 вида × 5 материалов ---
+        (pattern: ["MMM", " S ", " S "], key: {'M': "planks|spruce_planks", 'S': "stick"}, result: "wood_pickaxe", count: 1),
+        (pattern: ["MMM", " S ", " S "], key: {'M': "cobblestone|mossy_cobblestone|deep_stone", 'S': "stick"}, result: "stone_pickaxe", count: 1),
+        (pattern: ["MMM", " S ", " S "], key: {'M': "copper_ingot", 'S': "stick"}, result: "copper_pickaxe", count: 1),
+        (pattern: ["MMM", " S ", " S "], key: {'M': "iron_ingot", 'S': "stick"}, result: "iron_pickaxe", count: 1),
+        (pattern: ["MMM", " S ", " S "], key: {'M': "diamond", 'S': "stick"}, result: "diamond_pickaxe", count: 1),
+
+        (pattern: ["MM", "MS", " S"], key: {'M': "planks|spruce_planks", 'S': "stick"}, result: "wood_axe", count: 1),
+        (pattern: ["MM", "MS", " S"], key: {'M': "cobblestone|mossy_cobblestone|deep_stone", 'S': "stick"}, result: "stone_axe", count: 1),
+        (pattern: ["MM", "MS", " S"], key: {'M': "copper_ingot", 'S': "stick"}, result: "copper_axe", count: 1),
+        (pattern: ["MM", "MS", " S"], key: {'M': "iron_ingot", 'S': "stick"}, result: "iron_axe", count: 1),
+        (pattern: ["MM", "MS", " S"], key: {'M': "diamond", 'S': "stick"}, result: "diamond_axe", count: 1),
+
+        (pattern: ["M", "S", "S"], key: {'M': "planks|spruce_planks", 'S': "stick"}, result: "wood_shovel", count: 1),
+        (pattern: ["M", "S", "S"], key: {'M': "cobblestone|mossy_cobblestone|deep_stone", 'S': "stick"}, result: "stone_shovel", count: 1),
+        (pattern: ["M", "S", "S"], key: {'M': "copper_ingot", 'S': "stick"}, result: "copper_shovel", count: 1),
+        (pattern: ["M", "S", "S"], key: {'M': "iron_ingot", 'S': "stick"}, result: "iron_shovel", count: 1),
+        (pattern: ["M", "S", "S"], key: {'M': "diamond", 'S': "stick"}, result: "diamond_shovel", count: 1),
+
+        (pattern: ["M", "M", "S"], key: {'M': "planks|spruce_planks", 'S': "stick"}, result: "wood_sword", count: 1),
+        (pattern: ["M", "M", "S"], key: {'M': "cobblestone|mossy_cobblestone|deep_stone", 'S': "stick"}, result: "stone_sword", count: 1),
+        (pattern: ["M", "M", "S"], key: {'M': "copper_ingot", 'S': "stick"}, result: "copper_sword", count: 1),
+        (pattern: ["M", "M", "S"], key: {'M': "iron_ingot", 'S': "stick"}, result: "iron_sword", count: 1),
+        (pattern: ["M", "M", "S"], key: {'M': "diamond", 'S': "stick"}, result: "diamond_sword", count: 1),
+
+        // --- блоки хранения ---
+        (pattern: ["III", "III", "III"], key: {'I': "copper_ingot"}, result: "copper_block", count: 1),
+        (pattern: ["III", "III", "III"], key: {'I': "iron_ingot"}, result: "iron_block", count: 1),
+        (pattern: ["III", "III", "III"], key: {'I': "gold_ingot"}, result: "gold_block", count: 1),
+        (pattern: ["III", "III", "III"], key: {'I': "diamond"}, result: "diamond_block", count: 1),
+    ],
+    shapeless: [
+        (ingredients: ["oak_log"], result: "planks", count: 4),
+        (ingredients: ["spruce_log"], result: "spruce_planks", count: 4),
+        (ingredients: ["copper_block"], result: "copper_ingot", count: 9),
+        (ingredients: ["iron_block"], result: "iron_ingot", count: 9),
+        (ingredients: ["gold_block"], result: "gold_ingot", count: 9),
+        (ingredients: ["diamond_block"], result: "diamond", count: 9),
+        (ingredients: ["cobblestone", "tall_grass"], result: "mossy_cobblestone", count: 1),
+        (ingredients: ["gravel", "gravel", "flint"], result: "flint", count: 2),
+        (ingredients: ["burnt_torch", "coal|charcoal"], result: "torch", count: 1),
+    ],
+    smelting: [
+        (input: "raw_iron", output: "iron_ingot", time: 8.0),
+        (input: "raw_copper", output: "copper_ingot", time: 7.0),
+        (input: "raw_gold", output: "gold_ingot", time: 8.0),
+        (input: "iron_ore", output: "iron_ingot", time: 10.0),
+        (input: "copper_ore", output: "copper_ingot", time: 9.0),
+        (input: "gold_ore", output: "gold_ingot", time: 10.0),
+        (input: "sand", output: "glass", time: 6.0),
+        (input: "cobblestone", output: "stone", time: 6.0),
+        (input: "deep_stone", output: "stone", time: 6.0),
+        (input: "oak_log", output: "charcoal", time: 6.0),
+        (input: "spruce_log", output: "charcoal", time: 6.0),
+        (input: "raw_meat", output: "cooked_meat", time: 5.0),
+        (input: "raw_mutton", output: "cooked_mutton", time: 5.0),
+        (input: "cactus", output: "dead_bush", time: 4.0),
+        (input: "clay", output: "stone_bricks", time: 8.0),
+    ],
+    fuels: [
+        (item: "coal", burn: 80.0),
+        (item: "charcoal", burn: 80.0),
+        (item: "planks", burn: 15.0),
+        (item: "spruce_planks", burn: 15.0),
+        (item: "oak_log", burn: 15.0),
+        (item: "spruce_log", burn: 15.0),
+        (item: "stick", burn: 5.0),
+        (item: "crafting_table", burn: 15.0),
+        (item: "chest", burn: 15.0),
+        (item: "ladder", burn: 15.0),
+        (item: "support", burn: 15.0),
+        (item: "wood_pickaxe", burn: 10.0),
+        (item: "wood_axe", burn: 10.0),
+        (item: "wood_shovel", burn: 10.0),
+        (item: "wood_sword", burn: 10.0),
+        (item: "dead_bush", burn: 5.0),
+    ],
+)

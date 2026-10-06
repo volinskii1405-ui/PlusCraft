@@ -1,7 +1,9 @@
 //! PlusCraft — воксельная песочница на Rust + Vulkan.
 
 mod assets;
+mod blockentity;
 mod camera;
+mod crafting;
 mod entities;
 mod game;
 mod input;
@@ -212,11 +214,15 @@ impl State {
         self.last_frame = now;
 
         let console_open = self.game.as_ref().map(|g| g.console.open).unwrap_or(false);
-        if self.input.key_pressed(KeyCode::Escape) && !console_open {
+        let screen_open = self.game.as_ref().map(|g| g.wants_cursor()).unwrap_or(false);
+        if self.input.key_pressed(KeyCode::Escape) && !console_open && !screen_open {
             self.set_grab(false);
         }
         let dead = self.game.as_ref().map(|g| g.player.is_dead()).unwrap_or(false);
-        if self.input.mouse_pressed(0) && !self.grabbed && !dead {
+        if screen_open && self.grabbed {
+            self.set_grab(false);
+        }
+        if self.input.mouse_pressed(0) && !self.grabbed && !dead && !screen_open {
             self.set_grab(true);
             // Клик, захвативший мышь, не должен ломать блок.
             self.input.consume_mouse(0);
@@ -239,7 +245,17 @@ impl State {
         game.upload_meshes(&mut self.renderer);
         game.draw_hud(&mut ui, &self.renderer);
         let geo = game.build_geometry(&self.settings);
+        let mut want_grab_after_screen = false;
+        if game.container.is_some() {
+            let inv_key = self.input.pressed(&self.settings.controls, settings::Action::Inventory);
+            if !ui::screens::update_and_draw(game, &mut ui, &self.input, inv_key) {
+                want_grab_after_screen = true;
+            }
+        }
         let mut want_grab = None;
+        if want_grab_after_screen {
+            want_grab = Some(true);
+        }
         if dead {
             want_grab = Some(false);
             ui.rect(0.0, 0.0, ui.width, ui.height, [120, 0, 0, 110]);

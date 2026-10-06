@@ -4,7 +4,9 @@
 use glam::{DVec3, IVec3, Mat4, Quat, Vec3};
 use winit::keyboard::KeyCode;
 
+use crate::blockentity::BlockEntities;
 use crate::camera::Camera;
+use crate::crafting::Recipes;
 use crate::entities::mesh::{self, pack_light};
 use crate::entities::{self, Entities};
 use crate::input::InputState;
@@ -18,6 +20,7 @@ use crate::settings::{Action, Settings};
 use crate::ui::draw::{UiBatch, WHITE};
 use crate::ui::console::Console;
 use crate::ui::hud;
+use crate::ui::screens::{self, ContainerUi, Screen};
 use crate::world::biome;
 use crate::world::block::{self, block_id, block_meta, def, id, Drop, Shape, ToolKind};
 use crate::world::chunk::ChunkPos;
@@ -67,6 +70,10 @@ pub struct Game {
     /// Всплывающие сообщения (текст, оставшееся время).
     pub messages: Vec<(String, f32)>,
     pub console: Console,
+    pub recipes: Recipes,
+    pub block_entities: BlockEntities,
+    /// Открытый экран инвентаря/контейнера.
+    pub container: Option<ContainerUi>,
     fps: f32,
     fps_acc: f32,
     fps_frames: u32,
@@ -166,6 +173,9 @@ impl Game {
             rng: Rng::new(seed ^ 0xABCDEF),
             messages: Vec::new(),
             console: Console::default(),
+            recipes: Recipes::load(),
+            block_entities: BlockEntities::default(),
+            container: None,
             fps: 0.0,
             fps_acc: 0.0,
             fps_frames: 0,
@@ -248,6 +258,19 @@ impl Game {
                 "Вы погибли".into()
             }
             "seed" => format!("Seed: {}", self.world.seed),
+            "ui" => {
+                // Отладка: ставит контейнер рядом с игроком и открывает его.
+                let p = self.player.pos.floor().as_ivec3() + IVec3::new(0, 0, -2);
+                let (b, sc) = match parts.get(1).copied() {
+                    Some("crafting") => (id::CRAFTING_TABLE, Screen::Crafting(p)),
+                    Some("furnace") => (id::FURNACE, Screen::Furnace(p)),
+                    Some("chest") => (id::CHEST, Screen::Chest(p)),
+                    _ => return "Использование: /ui crafting|furnace|chest".into(),
+                };
+                self.world.set(p.x, p.y, p.z, block::make(b, 4));
+                screens::open(self, sc);
+                "Открыто".into()
+            }
             "setblock" => {
                 let v: Vec<i32> = parts.iter().skip(1).take(3).filter_map(|p| p.parse().ok()).collect();
                 let (Some(key), true) = (parts.get(4), v.len() == 3) else { return "Использование: /setblock x y z блок".into() };
@@ -281,6 +304,13 @@ impl Game {
             self.message(reply);
         }
         let active = active && !self.console.open;
+        if input.pressed(&settings.controls, Action::Inventory)
+            && self.container.is_none()
+            && !self.console.open
+            && !self.player.is_dead()
+        {
+            screens::open(self, Screen::Inventory);
+        }
         self.time += dt as f64;
         self.fps_acc += dt;
         self.fps_frames += 1;
@@ -384,6 +414,7 @@ impl Game {
         }
         self.player.tick_status(&self.world, dt);
         self.pickup_items();
+        self.tick_furnaces(dt);
 
         // Камера: интерполяция между шагами физики, плавный присед.
         let alpha = self.accumulator / PHYSICS_DT;
@@ -473,8 +504,16 @@ impl Game {
         if bid == id::AIR || def(bid).hardness < 0.0 {
             return;
         }
+        // Содержимое сундука/печи выпадает (лут шахт генерируется сейчас).
+        if bid == id::CHEST && block_meta(v) & crate::world::mines::CHEST_LOOT_FLAG != 0 {
+            let seed = self.world.seed;
+            self.block_entities.chest_mut(pos, || crate::blockentity::Chest::mine_loot(seed, pos));
+        }
         if !self.world.set(pos.x, pos.y, pos.z, 0) {
             return;
+        }
+        for st in self.block_entities.remove(pos) {
+            self.spawn_drop(pos, st);
         }
         if survival {
             let held = self.player.inventory.selected_stack();
@@ -585,7 +624,45 @@ impl Game {
         }
 
         let Some(hit) = self.target else { return };
+        // Взаимодействие с верстаком, печью, сундуком (с Shift — ставим блок).
+        if pressed && !input.down(c, Action::Sneak) {
+            let screen = match self.world.get_id(hit.pos.x, hit.pos.y, hit.pos.z) {
+                id::CRAFTING_TABLE => Some(Screen::Crafting(hit.pos)),
+                id::FURNACE | id::FURNACE_LIT => Some(Screen::Furnace(hit.pos)),
+                id::CHEST => Some(Screen::Chest(hit.pos)),
+                _ => None,
+            };
+            if let Some(sc) = screen {
+                screens::open(self, sc);
+                return;
+            }
+        }
         self.try_place(hit);
+    }
+
+    /// Плавка во всех печах; горящая печь светится (смена блока).
+    fn tick_furnaces(&mut self, dt: f32) {
+        let mut changed = Vec::new();
+        for (&(x, y, z), e) in self.block_entities.map.iter_mut() {
+            if let crate::blockentity::BlockEntity::Furnace(f) = e {
+                if f.tick(&self.recipes, dt) {
+                    changed.push((IVec3::new(x, y, z), f.is_burning()));
+                }
+            }
+        }
+        for (p, burning) in changed {
+            let v = self.world.get(p.x, p.y, p.z);
+            let b = block_id(v);
+            if b == id::FURNACE || b == id::FURNACE_LIT {
+                let nb = if burning { id::FURNACE_LIT } else { id::FURNACE };
+                self.world.set(p.x, p.y, p.z, block::make(nb, block_meta(v)));
+            }
+        }
+    }
+
+    /// Нужен ли сейчас курсор мыши (открыт экран).
+    pub fn wants_cursor(&self) -> bool {
+        self.container.is_some()
     }
 
     /// Ставит блок из выбранного слота у грани `hit`. true — если поставлен.
@@ -830,7 +907,10 @@ impl Game {
                 * Mat4::from_rotation_y(-0.6 - swing * 0.5)
                 * Mat4::from_rotation_x(-swing * 0.8);
             match self.player.inventory.selected_stack() {
-                Some(st) => entities::push_item_model(&mut g.overlay, &model, st.item, light, 0.32),
+                Some(st) => {
+                    let is_block = matches!(item::def(st.item).map(|d| d.kind), Some(ItemKind::Block(b)) if def(b).shape == Shape::Cube);
+                    entities::push_item_model(&mut g.overlay, &model, st.item, light, if is_block { 0.3 } else { 0.2 });
+                }
                 None => {
                     // Рука — вытянутый кубоид цвета кожи.
                     let faces = [mesh::FaceTex::none(); 6];
