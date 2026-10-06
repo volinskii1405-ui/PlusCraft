@@ -29,14 +29,16 @@ use input::InputState;
 use renderer::{FrameInput, Renderer, TextureLayers};
 use settings::{Input, Settings};
 
-struct Options {
-    exit_after: Option<f32>,
-    seed: Option<u64>,
+pub struct Options {
+    pub exit_after: Option<f32>,
+    pub seed: Option<u64>,
+    /// Камера для тестовых скриншотов: x, y, z, yaw°, pitch°.
+    pub camera: Option<[f64; 5]>,
 }
 
 fn parse_args() -> Result<Option<Options>> {
     let args: Vec<String> = std::env::args().collect();
-    let mut opts = Options { exit_after: None, seed: None };
+    let mut opts = Options { exit_after: None, seed: None, camera: None };
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -57,6 +59,13 @@ fn parse_args() -> Result<Option<Options>> {
             "--seed" => {
                 i += 1;
                 opts.seed = args.get(i).map(|s| seed_from_str(s));
+            }
+            "--camera" => {
+                i += 1;
+                let v: Vec<f64> = args.get(i).map(|s| s.split(',').filter_map(|p| p.parse().ok()).collect()).unwrap_or_default();
+                if v.len() == 5 {
+                    opts.camera = Some([v[0], v[1], v[2], v[3], v[4]]);
+                }
             }
             "--help" | "-h" => {
                 println!("pluscraft [--gen-assets] [--seed SEED] [--exit-after СЕКУНДЫ]");
@@ -132,7 +141,12 @@ impl State {
                 seed_from_str(&settings.gameplay.default_seed)
             }
         });
-        let game = Game::new(seed, &settings);
+        let mut game = Game::new(seed, &settings);
+        if let Some(c) = opts.camera {
+            game.camera.pos = glam::DVec3::new(c[0], c[1], c[2]);
+            game.camera.yaw = (c[3] as f32).to_radians();
+            game.camera.pitch = (c[4] as f32).to_radians();
+        }
 
         Ok(Self {
             renderer,

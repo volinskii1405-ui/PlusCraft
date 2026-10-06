@@ -80,6 +80,10 @@ struct Builder<'a> {
     smooth: bool,
     opaque: Vec<ChunkVertex>,
     translucent: Vec<ChunkVertex>,
+    /// Полупрозрачные грани жидкостей — рисуются раньше прочих полупрозрачных
+    /// блоков (лёд, стекло обычно ближе к камере, чем вода под ними).
+    liquid: Vec<ChunkVertex>,
+    in_liquid: bool,
     min_y: f32,
     max_y: f32,
 }
@@ -109,6 +113,11 @@ fn face_visible(a: u16, b: u16) -> bool {
     }
     let da = def(block_id(a));
     if block_id(a) == block_id(b) && da.layer != Layer::Cutout {
+        return false;
+    }
+    // Полупрозрачный блок (лёд, стекло) не рисует грань в сторону воды —
+    // иначе при взгляде сверху грань накладывается дважды.
+    if da.layer == Layer::Translucent && db.shape == Shape::Liquid && db.layer == Layer::Translucent {
         return false;
     }
     // Грань куба, смотрящая в жидкость того же типа, у которой есть уровень, — видна.
@@ -149,7 +158,13 @@ impl<'a> Builder<'a> {
             self.min_y = self.min_y.min(y);
             self.max_y = self.max_y.max(y);
         }
-        let out = if translucent { &mut self.translucent } else { &mut self.opaque };
+        let out = if !translucent {
+            &mut self.opaque
+        } else if self.in_liquid {
+            &mut self.liquid
+        } else {
+            &mut self.translucent
+        };
         if flip {
             out.extend_from_slice(&[v[1], v[2], v[3], v[0]]);
         } else {
@@ -451,7 +466,11 @@ impl<'a> Builder<'a> {
                 };
                 self.quad(p, uv, tex, 2, l, flags, tint, false, true);
             }
-            Shape::Liquid => self.liquid(x, y, z, v),
+            Shape::Liquid => {
+                self.in_liquid = true;
+                self.liquid(x, y, z, v);
+                self.in_liquid = false;
+            }
             Shape::Cube | Shape::Air => {}
         }
     }
@@ -514,10 +533,6 @@ impl<'a> Builder<'a> {
                 verts[k] = vert(p, tex, uv, dir as u8, 3, l.0, l.1, flags, tint, 255);
             }
             self.push_quad(translucent, verts, false);
-            // Поверхность воды видна и снизу (из-под воды).
-            if dir == 0 && translucent {
-                self.push_quad(true, [verts[3], verts[2], verts[1], verts[0]], false);
-            }
         }
     }
 }
@@ -538,6 +553,8 @@ pub fn build(nb: &Neighborhood, smooth: bool) -> MeshOutput {
         smooth,
         opaque: Vec::with_capacity(1 << 14),
         translucent: Vec::new(),
+        liquid: Vec::new(),
+        in_liquid: false,
         min_y: f32::MAX,
         max_y: f32::MIN,
     };
@@ -562,7 +579,49 @@ pub fn build(nb: &Neighborhood, smooth: bool) -> MeshOutput {
         min_y: b.min_y,
         max_y: b.max_y,
         opaque: b.opaque,
-        translucent: b.translucent,
+        translucent: {
+            let mut t = b.liquid;
+            t.extend_from_slice(&b.translucent);
+            t
+        },
         light: light.center(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::chunk::ChunkPos;
+    use crate::world::gen::WorldGen;
+    use std::sync::Arc;
+
+    #[test]
+    fn water_faces_near_border() {
+        let g = WorldGen::new(2024);
+        let c = ChunkPos::new(3, 1);
+        let mut chunks: [[Option<Arc<crate::world::chunk::ChunkData>>; 3]; 3] = Default::default();
+        for dz in -1..=1 {
+            for dx in -1..=1 {
+                chunks[(dz + 1) as usize][(dx + 1) as usize] = Some(Arc::new(g.generate(c.offset(dx, dz))));
+            }
+        }
+        let nb = Neighborhood { center: c, chunks };
+        let out = build(&nb, true);
+        // Квады с флагом жидкости (верх воды) по столбцам x.
+        let mut per_x = [0u32; 16];
+        let mut ice_x = [0u32; 17];
+        for q in out.translucent.chunks(4) {
+            let tex = q[0].pos[3];
+            let xs: Vec<u16> = q.iter().map(|v| v.pos[0] / 16).collect();
+            if q[0].info[3] & VFLAG_LIQUID != 0 {
+                per_x[(*xs.iter().min().unwrap()).min(15) as usize] += 1;
+            } else if tex == crate::assets::textures::Tex::Ice as u16 {
+                ice_x[*xs.iter().min().unwrap() as usize] += 1;
+            }
+        }
+        println!("water tops per x: {per_x:?}");
+        println!("ice quads by min x: {ice_x:?}");
+        let ys: Vec<u16> = out.translucent.iter().filter(|v| v.pos[3] == crate::assets::textures::Tex::Ice as u16).map(|v| v.pos[1]).collect();
+        println!("ice y values: min {:?} max {:?}", ys.iter().min(), ys.iter().max());
     }
 }

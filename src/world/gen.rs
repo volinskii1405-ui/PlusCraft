@@ -372,3 +372,28 @@ fn surface_block(col: Column, y: i32, h: i32, soil: i32) -> BlockId {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::block::block_id;
+
+    #[test]
+    fn generation_is_deterministic() {
+        let a = WorldGen::new(99).generate(ChunkPos::new(3, -2));
+        let b = WorldGen::new(99).generate(ChunkPos::new(3, -2));
+        assert!(a.blocks == b.blocks);
+        let c = WorldGen::new(100).generate(ChunkPos::new(3, -2));
+        assert!(a.blocks != c.blocks);
+    }
+
+    #[test]
+    fn dump_ocean_column() {
+        let g = WorldGen::new(2024);
+        let c = g.generate(ChunkPos::new(3, 1));
+        for x in [0usize, 1, 7, 15] {
+            let col: Vec<u8> = (55..66).map(|y| block_id(c.get(x, y, 4))).collect();
+            println!("x={x}: {col:?}");
+        }
+    }
+}

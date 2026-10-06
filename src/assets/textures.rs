@@ -651,7 +651,7 @@ pub fn generate(t: Tex) -> Vec<u8> {
             let mut c = Canvas::new();
             c.fill(|x, y| {
                 let v = vnoise(x as f32, y as f32, 8.0, seed);
-                let mut col = shade([160, 200, 245, 190], 0.92 + v * 0.12);
+                let mut col = shade([160, 200, 245, 175], 0.92 + v * 0.12);
                 // Редкие светлые штрихи-трещины, не касающиеся краёв тайла.
                 if (x == y + 2 && (3..9).contains(&x)) || (x + y == 20 && (9..14).contains(&x)) {
                     col = [225, 240, 255, 210];
