@@ -648,11 +648,16 @@ pub fn generate(t: Tex) -> Vec<u8> {
             c
         }
         Tex::Ice => {
-            let mut c = noisy([150, 190, 240, 200], 0.06, seed);
-            for i in 0..14 {
-                c.set(i + 1, (i * 7 / 5 + 2) % 16, [230, 245, 255, 220]);
-                c.set((i * 3) % 16, 12 - i / 3, [230, 245, 255, 220]);
-            }
+            let mut c = Canvas::new();
+            c.fill(|x, y| {
+                let v = vnoise(x as f32, y as f32, 8.0, seed);
+                let mut col = shade([160, 200, 245, 190], 0.92 + v * 0.12);
+                // Редкие светлые штрихи-трещины, не касающиеся краёв тайла.
+                if (x == y + 2 && (3..9).contains(&x)) || (x + y == 20 && (9..14).contains(&x)) {
+                    col = [225, 240, 255, 210];
+                }
+                col
+            });
             c
         }
         Tex::Water => {
