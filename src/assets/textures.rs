@@ -42,6 +42,8 @@ tiles! {
     WoodSword, StoneSword, CopperSword, IronSword, DiamondSword,
     // --- мобы ---
     MobSkin, MobFur, MobEyes,
+    // --- иконки интерфейса ---
+    IconHeart, IconHeartHalf, IconHeartEmpty, IconFood, IconFoodHalf, IconFoodEmpty, IconBubble,
 }
 
 pub fn tile_count() -> usize {
@@ -1319,6 +1321,109 @@ pub fn generate(t: Tex) -> Vec<u8> {
             c.fill(|x, y| shade([240, 240, 240, 255], 0.78 + vnoise(x as f32, y as f32 * 2.0, 2.0, seed) * 0.3));
             c
         }
+        Tex::IconHeart | Tex::IconHeartHalf | Tex::IconHeartEmpty => {
+            let rows = [
+                "................",
+                "................",
+                "...KKKK..KKKK...",
+                "..KRRWRKKRRRRK..",
+                ".KRRWWRRRRRRRRK.",
+                ".KRWRRRRRRRRRRK.",
+                ".KRRRRRRRRRRRRK.",
+                ".KRRRRRRRRRRRDK.",
+                "..KRRRRRRRRRDK..",
+                "...KRRRRRRRDK...",
+                "....KRRRRRDK....",
+                ".....KRRRDK.....",
+                "......KRDK......",
+                ".......KK.......",
+                "................",
+                "................",
+            ];
+            let mut c = Canvas::new();
+            let red: Rgba = [220, 30, 40, 255];
+            let empty: Rgba = [60, 20, 24, 255];
+            for (y, row) in rows.iter().enumerate() {
+                for (x, ch) in row.chars().enumerate() {
+                    let full = match t {
+                        Tex::IconHeart => true,
+                        Tex::IconHeartHalf => x < 8,
+                        _ => false,
+                    };
+                    let col = match ch {
+                        'K' => [20, 10, 10, 255],
+                        'W' => if full { [255, 200, 200, 255] } else { empty },
+                        'R' => if full { red } else { empty },
+                        'D' => if full { [150, 15, 25, 255] } else { empty },
+                        _ => continue,
+                    };
+                    c.set(x as i32, y as i32, col);
+                }
+            }
+            c
+        }
+        Tex::IconFood | Tex::IconFoodHalf | Tex::IconFoodEmpty => {
+            let rows = [
+                "................",
+                "................",
+                "........KKKK....",
+                ".......KMMMMK...",
+                "......KMWMMMMK..",
+                "......KMMMMMMK..",
+                ".....KMMMMMMMK..",
+                ".....KMMMMMMDK..",
+                "....KKMMMMMDK...",
+                "...KBKKMMMDK....",
+                "..KBBK.KKKK.....",
+                ".KBBK...........",
+                "KBWK............",
+                ".KK.............",
+                "................",
+                "................",
+            ];
+            let mut c = Canvas::new();
+            for (y, row) in rows.iter().enumerate() {
+                for (x, ch) in row.chars().enumerate() {
+                    let full = match t {
+                        Tex::IconFood => true,
+                        Tex::IconFoodHalf => x >= 7,
+                        _ => false,
+                    };
+                    let dim: Rgba = [50, 35, 25, 255];
+                    let col = match ch {
+                        'K' => [20, 12, 8, 255],
+                        'M' => if full { [180, 100, 50, 255] } else { dim },
+                        'W' => if full { [230, 160, 110, 255] } else { dim },
+                        'D' => if full { [120, 60, 25, 255] } else { dim },
+                        'B' => if full { [235, 230, 215, 255] } else { dim },
+                        _ => continue,
+                    };
+                    c.set(x as i32, y as i32, col);
+                }
+            }
+            c
+        }
+        Tex::IconBubble => item_blob(
+            &[
+                "................",
+                "................",
+                "................",
+                ".....KKKKKK.....",
+                "....KBBBBBBK....",
+                "...KBWWBBBBBK...",
+                "...KBWBBBBBBK...",
+                "...KBBBBBBBBK...",
+                "...KBBBBBBBBK...",
+                "...KBBBBBBBBK...",
+                "...KBBBBBBBBK...",
+                "....KBBBBBBK....",
+                ".....KKKKKK.....",
+                "................",
+                "................",
+                "................",
+            ],
+            &[('K', [30, 60, 120, 255]), ('B', [80, 150, 240, 255]), ('W', [230, 245, 255, 255])],
+        ),
         Tex::MobEyes => {
             let mut c = Canvas::new();
             c.fill(|_, _| [255, 255, 255, 255]);

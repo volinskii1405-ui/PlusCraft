@@ -180,8 +180,9 @@ pub fn create_sampler(
 ) -> Result<vk::Sampler> {
     let aniso = anisotropy.min(ctx.limits.max_sampler_anisotropy);
     let info = vk::SamplerCreateInfo::default()
-        .mag_filter(if pixelated { vk::Filter::NEAREST } else { vk::Filter::LINEAR })
-        // Пиксель-арт: вблизи — чёткие тексели, вдали — трилинейная фильтрация.
+        .mag_filter(vk::Filter::LINEAR)
+        // Пиксель-арт: чёткость текселей вблизи обеспечивает шейдер
+        // (sample_pixel_art), поэтому здесь везде линейная фильтрация.
         .min_filter(if pixelated && max_lod <= 0.0 { vk::Filter::NEAREST } else { vk::Filter::LINEAR })
         .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
         .address_mode_u(vk::SamplerAddressMode::REPEAT)

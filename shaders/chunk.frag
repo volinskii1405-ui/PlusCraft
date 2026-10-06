@@ -1,5 +1,6 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
+#define FRAGMENT_SHADER
 #include "common.glsl"
 
 layout(constant_id = 0) const float ALPHA_CUT = 0.5;
@@ -19,7 +20,7 @@ void main() {
         // Течение текстуры жидкости.
         uv.xy += vec2(g.cam_pos.w * 0.03, g.cam_pos.w * 0.02);
     }
-    vec4 tex = texture(u_blocks, uv);
+    vec4 tex = sample_pixel_art(u_blocks, uv);
     if (tex.a < ALPHA_CUT) discard;
     vec3 albedo = tex.rgb * v_color.rgb;
     vec3 col;

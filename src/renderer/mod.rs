@@ -77,6 +77,8 @@ pub struct FrameInput<'a> {
     pub entities: &'a [EntityVertex],
     pub entities_translucent: &'a [EntityVertex],
     pub lines: &'a [EntityVertex],
+    /// Геометрия поверх мира (предмет в руке): рисуется после очистки глубины.
+    pub overlay: &'a [EntityVertex],
     pub ui: &'a [UiVertex],
     pub draw_world: bool,
 }
@@ -668,12 +670,13 @@ impl Renderer {
         globals.inv_view_proj = view_proj.inverse().to_cols_array_2d();
         self.frames[fi].ubo.write_bytes(bytemuck::bytes_of(&globals))?;
 
-        // --- Динамические вершины: entities | translucent | lines | ui ---
-        let parts: [&[u8]; 4] = [
+        // --- Динамические вершины: entities | translucent | lines | ui | overlay ---
+        let parts: [&[u8]; 5] = [
             bytemuck::cast_slice(input.entities),
             bytemuck::cast_slice(input.entities_translucent),
             bytemuck::cast_slice(input.lines),
             bytemuck::cast_slice(input.ui),
+            bytemuck::cast_slice(input.overlay),
         ];
         let total: usize = parts.iter().map(|p| p.len()).sum();
         if total as u64 > self.frames[fi].dynamic.size {
@@ -688,7 +691,7 @@ impl Renderer {
             let old = std::mem::replace(&mut self.frames[fi].dynamic, nb);
             self.ctx.destroy_buffer(old);
         }
-        let mut offsets = [0u64; 4];
+        let mut offsets = [0u64; 5];
         {
             let dst = self.frames[fi]
                 .dynamic
@@ -866,9 +869,29 @@ impl Renderer {
                     device.cmd_bind_vertex_buffers(cmd, 0, &[dyn_buf], &[offsets[2]]);
                     device.cmd_draw(cmd, input.lines.len() as u32, 1, 0, 0);
                 }
+
+                // 7. Предмет в руке: очищаем глубину, чтобы он не уходил в стены.
+                if !input.overlay.is_empty() {
+                    let clear = vk::ClearAttachment {
+                        aspect_mask: vk::ImageAspectFlags::DEPTH,
+                        color_attachment: 0,
+                        clear_value: vk::ClearValue {
+                            depth_stencil: vk::ClearDepthStencilValue { depth: 0.0, stencil: 0 },
+                        },
+                    };
+                    let rect = vk::ClearRect {
+                        rect: vk::Rect2D { offset: vk::Offset2D::default(), extent },
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    };
+                    device.cmd_clear_attachments(cmd, &[clear], &[rect]);
+                    device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipelines.entity);
+                    device.cmd_bind_vertex_buffers(cmd, 0, &[dyn_buf], &[offsets[4]]);
+                    device.cmd_draw(cmd, input.overlay.len() as u32, 1, 0, 0);
+                }
             }
 
-            // 7. Интерфейс.
+            // 8. Интерфейс.
             if !input.ui.is_empty() {
                 device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipelines.ui);
                 push(

@@ -33,3 +33,17 @@ vec3 apply_fog(vec3 color, vec3 view_pos) {
     f = f * f * (3.0 - 2.0 * f);
     return mix(color, g.fog_color.rgb, f);
 }
+
+#ifdef FRAGMENT_SHADER
+// Чёткая «пиксельная» выборка: тексели остаются квадратными при увеличении,
+// а их края сглаживаются на ширину одного пикселя экрана. Выбор mip-уровня —
+// по исходным производным UV, поэтому вдали работает обычная фильтрация.
+vec4 sample_pixel_art(sampler2DArray tex, vec3 uv) {
+    vec2 size = vec2(textureSize(tex, 0).xy);
+    vec2 px = uv.xy * size;
+    vec2 seam = floor(px + 0.5);
+    vec2 dpx = max(fwidth(px), vec2(1e-5));
+    vec2 snapped = (seam + clamp((px - seam) / dpx, -0.5, 0.5)) / size;
+    return textureGrad(tex, vec3(snapped, uv.z), dFdx(uv.xy), dFdy(uv.xy));
+}
+#endif

@@ -20,7 +20,12 @@ fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join("shaders");
     std::fs::create_dir_all(&out).expect("create OUT_DIR/shaders");
     let src = Path::new("shaders");
-    println!("cargo:rerun-if-changed=shaders");
+    // Явно перечисляем файлы: отслеживание каталога целиком ненадёжно.
+    println!("cargo:rerun-if-changed=shaders/common.glsl");
+    for name in SHADERS {
+        println!("cargo:rerun-if-changed=shaders/{name}");
+        println!("cargo:rerun-if-changed=shaders/spv/{name}.spv");
+    }
 
     let glslang = tool_available("glslangValidator");
     let glslc = !glslang && tool_available("glslc");

@@ -48,6 +48,12 @@ impl InputState {
         self.last_pressed = None;
     }
 
+    /// «Съедает» нажатие кнопки мыши (чтобы его не обработали дальше).
+    pub fn consume_mouse(&mut self, b: u8) {
+        self.pressed.remove(&Input::Mouse(b));
+        self.down.remove(&Input::Mouse(b));
+    }
+
     pub fn key_down(&self, k: KeyCode) -> bool {
         self.down.contains(&Input::Key(k))
     }

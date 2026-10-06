@@ -1,5 +1,6 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
+#define FRAGMENT_SHADER
 #include "common.glsl"
 
 layout(location = 0) in vec2 v_ndc;

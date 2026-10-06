@@ -2,12 +2,17 @@
 
 mod assets;
 mod camera;
+mod entities;
 mod game;
 mod input;
+mod inventory;
 mod item;
 mod paths;
+mod physics;
+mod player;
 mod renderer;
 mod save;
+mod selftest;
 mod settings;
 mod ui;
 mod world;
@@ -34,11 +39,12 @@ pub struct Options {
     pub seed: Option<u64>,
     /// Камера для тестовых скриншотов: x, y, z, yaw°, pitch°.
     pub camera: Option<[f64; 5]>,
+    pub selftest: bool,
 }
 
 fn parse_args() -> Result<Option<Options>> {
     let args: Vec<String> = std::env::args().collect();
-    let mut opts = Options { exit_after: None, seed: None, camera: None };
+    let mut opts = Options { exit_after: None, seed: None, camera: None, selftest: false };
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -67,8 +73,9 @@ fn parse_args() -> Result<Option<Options>> {
                     opts.camera = Some([v[0], v[1], v[2], v[3], v[4]]);
                 }
             }
+            "--selftest" => opts.selftest = true,
             "--help" | "-h" => {
-                println!("pluscraft [--gen-assets] [--seed SEED] [--exit-after СЕКУНДЫ]");
+                println!("pluscraft [--gen-assets] [--seed SEED] [--exit-after СЕКУНДЫ] [--selftest]");
                 return Ok(None);
             }
             other => log::warn!("неизвестный аргумент: {other}"),
@@ -114,6 +121,7 @@ struct State {
     last_frame: Instant,
     start: Instant,
     exit_after: Option<f32>,
+    selftest: Option<selftest::SelfTest>,
 }
 
 impl State {
@@ -141,9 +149,12 @@ impl State {
                 seed_from_str(&settings.gameplay.default_seed)
             }
         });
-        let mut game = Game::new(seed, &settings);
+        let mut game = Game::new(seed, &settings, player::GameMode::Survival);
         if let Some(c) = opts.camera {
-            game.camera.pos = glam::DVec3::new(c[0], c[1], c[2]);
+            game.player.pos = glam::DVec3::new(c[0], c[1], c[2]);
+            game.player.prev_pos = game.player.pos;
+            game.player.flying = true;
+            game.player.mode = player::GameMode::Creative;
             game.camera.yaw = (c[3] as f32).to_radians();
             game.camera.pitch = (c[4] as f32).to_radians();
         }
@@ -159,6 +170,7 @@ impl State {
             last_frame: Instant::now(),
             start: Instant::now(),
             exit_after: opts.exit_after,
+            selftest: opts.selftest.then(selftest::SelfTest::new),
         })
     }
 
@@ -190,16 +202,37 @@ impl State {
         if self.input.key_pressed(KeyCode::Escape) {
             self.set_grab(false);
         }
-        if self.input.mouse_pressed(0) && !self.grabbed {
+        let dead = self.game.as_ref().map(|g| g.player.is_dead()).unwrap_or(false);
+        if self.input.mouse_pressed(0) && !self.grabbed && !dead {
             self.set_grab(true);
+            // Клик, захвативший мышь, не должен ломать блок.
+            self.input.consume_mouse(0);
         }
 
         let (w, h) = self.renderer.extent();
         let mut ui = ui::draw::UiBatch::new(&self.font, w as f32, h as f32, self.settings.graphics.ui_scale as f32);
         let Some(game) = self.game.as_mut() else { return Ok(()) };
-        game.update(dt, &self.input, &self.settings, self.grabbed);
+        let dead = game.player.is_dead();
+        game.update(dt, &self.input, &self.settings, self.grabbed && !dead && self.selftest.is_none());
+        if let Some(t) = self.selftest.as_mut() {
+            t.update(game, dt);
+        }
         game.upload_meshes(&mut self.renderer);
         game.draw_hud(&mut ui, &self.renderer);
+        let geo = game.build_geometry(&self.settings);
+        let mut want_grab = None;
+        if dead {
+            want_grab = Some(false);
+            ui.rect(0.0, 0.0, ui.width, ui.height, [120, 0, 0, 110]);
+            let s = ui.scale;
+            ui.text_centered(ui.width / 2.0, ui.height * 0.3, "Вы погибли!", 2.0, [255, 230, 230, 255]);
+            let (bw, bh) = (260.0 * s, 40.0 * s);
+            let (bx, by) = ((ui.width - bw) / 2.0, ui.height * 0.45);
+            if ui::widgets::button(&mut ui, &self.input, bx, by, bw, bh, "Возродиться") {
+                game.respawn();
+                want_grab = Some(true);
+            }
+        }
 
         let input = FrameInput {
             camera_pos: game.camera.pos,
@@ -207,13 +240,18 @@ impl State {
             fov_y: game.camera.fov_deg.to_radians(),
             globals: game.globals(&self.settings),
             max_distance: self.settings.graphics.render_distance as f32 * 16.0,
-            entities: &[],
-            entities_translucent: &[],
-            lines: &[],
+            entities: &geo.entities,
+            entities_translucent: &geo.translucent,
+            lines: &geo.lines,
+            overlay: &geo.overlay,
             ui: &ui.verts,
             draw_world: true,
         };
         self.renderer.render(&input)?;
+        drop(ui);
+        if let Some(g) = want_grab {
+            self.set_grab(g);
+        }
         self.input.end_frame();
 
         // Ограничение FPS.
@@ -241,6 +279,7 @@ struct App {
     opts: Options,
     state: Option<State>,
     error: Option<anyhow::Error>,
+    selftest_ok: Option<bool>,
 }
 
 impl ApplicationHandler for App {
@@ -312,6 +351,13 @@ impl ApplicationHandler for App {
                     event_loop.exit();
                     return;
                 }
+                if let Some(t) = &state.selftest {
+                    if t.done {
+                        self.selftest_ok = Some(t.all_passed());
+                        event_loop.exit();
+                        return;
+                    }
+                }
                 if let Some(limit) = state.exit_after {
                     if state.start.elapsed().as_secs_f32() > limit {
                         log::info!("--exit-after: выход");
@@ -344,13 +390,16 @@ fn run() -> Result<()> {
     let Some(opts) = parse_args()? else { return Ok(()) };
     let event_loop = EventLoop::new().context("создание цикла событий")?;
     event_loop.set_control_flow(ControlFlow::Poll);
-    let mut app = App { opts, state: None, error: None };
+    let mut app = App { opts, state: None, error: None, selftest_ok: None };
     event_loop.run_app(&mut app)?;
     // Явно уничтожаем состояние до выхода из цикла: Vulkan-объекты
     // освобождаются раньше окна, мир сохраняется.
     drop(app.state.take());
     if let Some(e) = app.error {
         return Err(e);
+    }
+    if app.selftest_ok == Some(false) {
+        anyhow::bail!("самопроверка не пройдена");
     }
     Ok(())
 }

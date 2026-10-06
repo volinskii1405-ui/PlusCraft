@@ -1,5 +1,6 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
+#define FRAGMENT_SHADER
 #include "common.glsl"
 
 layout(constant_id = 0) const float ALPHA_CUT = 0.5;
@@ -15,7 +16,7 @@ layout(location = 0) out vec4 out_color;
 
 void main() {
     vec4 c = v_color;
-    if (v_textured != 0u) c *= texture(u_blocks, v_uv);
+    if (v_textured != 0u) c *= sample_pixel_art(u_blocks, v_uv);
     if (c.a < ALPHA_CUT) discard;
     vec3 col = c.rgb;
     // Свет > 1.0 (значение 16+) означает «без освещения» (солнце, рамка).
