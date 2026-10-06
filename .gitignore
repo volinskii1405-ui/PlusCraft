@@ -7,3 +7,7 @@ cmake-build-*/
 .idea/
 compile_commands.json
 worlds/
+/settings.toml
+/saves/
+/dist/
+/target/

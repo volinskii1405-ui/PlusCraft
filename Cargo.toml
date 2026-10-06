@@ -1,0 +1,43 @@
+[package]
+name = "pluscraft"
+version = "0.1.0"
+edition = "2021"
+description = "PlusCraft — воксельная песочница на Rust + Vulkan"
+license = "MIT"
+build = "build.rs"
+
+[dependencies]
+ash = "0.38"
+ash-window = "0.13"
+raw-window-handle = "0.6"
+winit = "0.30"
+glam = { version = "0.29", features = ["serde", "bytemuck"] }
+gpu-allocator = { version = "0.27", default-features = false, features = ["vulkan"] }
+fontdue = "0.9"
+serde = { version = "1", features = ["derive"] }
+bincode = "1.3"
+ron = "0.8"
+toml = "0.8"
+anyhow = "1"
+thiserror = "2"
+log = "0.4"
+env_logger = "0.11"
+crossbeam-channel = "0.5"
+png = "0.17"
+bytemuck = { version = "1", features = ["derive"] }
+lz4_flex = "0.11"
+
+[profile.release]
+opt-level = 3
+debug = false
+lto = "thin"
+codegen-units = 4
+panic = "unwind"
+
+# Генерация мира и меширование тяжёлые — даже debug-сборку немного оптимизируем,
+# иначе в отладке мир грузится мучительно долго.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
