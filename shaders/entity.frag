@@ -20,7 +20,7 @@ void main() {
     if (c.a < ALPHA_CUT) discard;
     vec3 col = c.rgb;
     // Свет > 1.0 (значение 16+) означает «без освещения» (солнце, рамка).
-    if (v_light.x <= 1.0) col = apply_lighting(col, v_light.x, v_light.y);
+    if (v_light.x <= 1.0) col = apply_lighting(col, v_light.x, v_light.y, 1.0);
     col = apply_fog(col, v_view);
     out_color = vec4(col, c.a);
 }

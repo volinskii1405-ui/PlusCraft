@@ -27,7 +27,11 @@ void main() {
     if ((v_flags & 4u) != 0u) {
         col = albedo * 1.1; // эмиссивные блоки не темнеют
     } else {
-        col = apply_lighting(albedo, v_light.x, v_light.y);
+        // Лёгкое мерцание блочного света (факелы), разное в разных местах.
+        vec3 wp = floor(v_view + g.cam_pos.xyz);
+        float t = g.cam_pos.w;
+        float flicker = 0.93 + 0.04 * sin(t * 9.0 + dot(wp, vec3(1.7, 2.3, 3.1))) + 0.03 * sin(t * 23.0 + wp.x);
+        col = apply_lighting(albedo, v_light.x, v_light.y, flicker);
     }
     col = apply_fog(col, v_view);
     out_color = vec4(col, tex.a * v_color.a);

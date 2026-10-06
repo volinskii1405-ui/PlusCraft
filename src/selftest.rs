@@ -202,6 +202,51 @@ impl SelfTest {
                     self.next();
                 }
             }
+            // Пересчёт света: факел рядом с игроком, затем его удаление.
+            10 => {
+                let f = Self::feet(game);
+                let p = f + IVec3::new(0, 0, -1);
+                if game.world.get_id(p.x, p.y, p.z) != id::AIR {
+                    game.world.set(p.x, p.y, p.z, 0);
+                }
+                game.world.set(p.x, p.y, p.z, block::make(id::TORCH, 255));
+                self.expect_item = 0;
+                self.ground_y = 0.0;
+                self.next();
+            }
+            11 => {
+                if self.timer > 2.0 {
+                    let f = Self::feet(game);
+                    let p = f + IVec3::new(0, 0, -1);
+                    let (_, b) = game.world.light(p.x, p.y, p.z);
+                    // Соседняя непрозрачная для света клетка должна получить 13.
+                    let neighbors = [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::Z, IVec3::NEG_Z];
+                    let mut b2 = None;
+                    for d in neighbors {
+                        let q = p + d;
+                        if !block::is_opaque(game.world.get(q.x, q.y, q.z)) {
+                            b2 = Some(game.world.light(q.x, q.y, q.z).1);
+                            break;
+                        }
+                    }
+                    self.check(
+                        "torch_light",
+                        b == 14 && b2.map(|v| v == 13).unwrap_or(true),
+                        format!("блочный свет у факела {b}, в соседней клетке {b2:?}"),
+                    );
+                    game.world.set(p.x, p.y, p.z, 0);
+                    self.next();
+                }
+            }
+            12 => {
+                if self.timer > 2.0 {
+                    let f = Self::feet(game);
+                    let p = f + IVec3::new(0, 0, -1);
+                    let (_, b) = game.world.light(p.x, p.y, p.z);
+                    self.check("light_removed", b == 0, format!("после удаления факела блочный свет {b}"));
+                    self.next();
+                }
+            }
             _ => {
                 let passed = self.results.iter().filter(|r| r.1).count();
                 log::info!("[selftest] итог: {passed}/{} проверок пройдено", self.results.len());

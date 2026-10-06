@@ -16,6 +16,7 @@ use crate::renderer::vertex::EntityVertex;
 use crate::renderer::{Globals, Renderer};
 use crate::settings::{Action, Settings};
 use crate::ui::draw::{UiBatch, WHITE};
+use crate::ui::console::Console;
 use crate::ui::hud;
 use crate::world::biome;
 use crate::world::block::{self, block_id, block_meta, def, id, Drop, Shape, ToolKind};
@@ -49,6 +50,10 @@ pub struct Game {
     pub entities: Entities,
     pub camera: Camera,
     pub time: f64,
+    /// Время суток 0..1 (0 — рассвет, 0.25 — полдень).
+    pub day_time: f64,
+    /// Номер дня с начала мира.
+    pub day_count: u32,
     pub show_debug: bool,
     accumulator: f64,
     mining: Option<Mining>,
@@ -61,6 +66,7 @@ pub struct Game {
     rng: Rng,
     /// Всплывающие сообщения (текст, оставшееся время).
     pub messages: Vec<(String, f32)>,
+    pub console: Console,
     fps: f32,
     fps_acc: f32,
     fps_frames: u32,
@@ -146,6 +152,8 @@ impl Game {
             entities: Entities::default(),
             camera,
             time: 0.0,
+            day_time: 0.02,
+            day_count: 0,
             show_debug: false,
             accumulator: 0.0,
             mining: None,
@@ -157,6 +165,7 @@ impl Game {
             hand_swing: 0.0,
             rng: Rng::new(seed ^ 0xABCDEF),
             messages: Vec::new(),
+            console: Console::default(),
             fps: 0.0,
             fps_acc: 0.0,
             fps_frames: 0,
@@ -171,6 +180,89 @@ impl Game {
         }
     }
 
+    /// Выполняет консольную команду и возвращает текст ответа.
+    pub fn run_command(&mut self, cmd: &str) -> String {
+        let cmd = cmd.trim().trim_start_matches('/');
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
+        let Some(&name) = parts.first() else { return String::new() };
+        match name {
+            "help" | "помощь" => "Команды: /time day|night|noon|midnight|0..1, /gamemode s|c, /tp x y z, /give предмет [n], /setblock x y z блок, /heal, /kill, /seed".into(),
+            "time" => {
+                let t = match parts.get(1).copied() {
+                    Some("day") | Some("день") => 0.05,
+                    Some("noon") | Some("полдень") => 0.25,
+                    Some("sunset") | Some("закат") => 0.48,
+                    Some("night") | Some("ночь") => 0.6,
+                    Some("midnight") | Some("полночь") => 0.75,
+                    Some(v) => match v.parse::<f64>() {
+                        Ok(x) => x.rem_euclid(1.0),
+                        Err(_) => return format!("Неизвестное время: {v}"),
+                    },
+                    None => return format!("Сейчас {} (день {})", crate::sky::clock(self.day_time), self.day_count + 1),
+                };
+                self.day_time = t;
+                format!("Время установлено: {}", crate::sky::clock(t))
+            }
+            "gamemode" | "gm" => {
+                let mode = match parts.get(1).copied() {
+                    Some("c") | Some("1") | Some("creative") | Some("креатив") => GameMode::Creative,
+                    Some("s") | Some("0") | Some("survival") | Some("выживание") => GameMode::Survival,
+                    _ => return "Использование: /gamemode s|c".into(),
+                };
+                self.player.mode = mode;
+                self.player.flying = false;
+                format!("Режим игры: {}", if mode == GameMode::Creative { "креатив" } else { "выживание" })
+            }
+            "tp" => {
+                let v: Vec<f64> = parts[1..].iter().filter_map(|p| p.parse().ok()).collect();
+                if v.len() != 3 {
+                    return "Использование: /tp x y z".into();
+                }
+                self.player.pos = DVec3::new(v[0], v[1], v[2]);
+                self.player.prev_pos = self.player.pos;
+                self.player.vel = DVec3::ZERO;
+                format!("Телепорт в {:.1} {:.1} {:.1}", v[0], v[1], v[2])
+            }
+            "give" => {
+                let Some(key) = parts.get(1) else { return "Использование: /give предмет [количество]".into() };
+                let n: u32 = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(1).clamp(1, 64 * 36);
+                let Some(id) = item::by_key(key) else { return format!("Нет предмета «{key}»") };
+                let mut left = n;
+                while left > 0 {
+                    let k = left.min(item::max_stack(id) as u32);
+                    left -= k;
+                    if let Some(rest) = self.player.inventory.add(ItemStack::new(id, k as u8)) {
+                        let p = self.player.pos.floor().as_ivec3();
+                        self.spawn_drop(p, rest);
+                    }
+                }
+                format!("Выдано: {} × {}", n, item::name(id))
+            }
+            "heal" => {
+                self.player.health = player::MAX_HEALTH;
+                self.player.hunger = player::MAX_HUNGER;
+                "Здоровье восстановлено".into()
+            }
+            "kill" => {
+                self.player.health = 0.0;
+                "Вы погибли".into()
+            }
+            "seed" => format!("Seed: {}", self.world.seed),
+            "setblock" => {
+                let v: Vec<i32> = parts.iter().skip(1).take(3).filter_map(|p| p.parse().ok()).collect();
+                let (Some(key), true) = (parts.get(4), v.len() == 3) else { return "Использование: /setblock x y z блок".into() };
+                let Some(b) = block::by_key(key) else { return format!("Нет блока «{key}»") };
+                let meta = if b == id::TORCH { 255 } else { 0 };
+                if self.world.set(v[0], v[1], v[2], block::make(b, meta)) {
+                    format!("Блок {} установлен", def(b).name)
+                } else {
+                    "Чанк не загружен".into()
+                }
+            }
+            other => format!("Неизвестная команда: /{other} (см. /help)"),
+        }
+    }
+
     fn reach(&self) -> f32 {
         if self.player.creative() {
             REACH_CREATIVE
@@ -181,6 +273,14 @@ impl Game {
 
     /// Обновление кадра. `active` — мышь захвачена и игровое управление активно.
     pub fn update(&mut self, dt: f32, input: &InputState, settings: &Settings, active: bool) {
+        // Консоль команд перехватывает клавиатуру.
+        if active && !self.console.open && input.pressed(&settings.controls, Action::Chat) {
+            self.console.open_with("/");
+        } else if let Some(cmd) = self.console.update(input) {
+            let reply = self.run_command(&cmd);
+            self.message(reply);
+        }
+        let active = active && !self.console.open;
         self.time += dt as f64;
         self.fps_acc += dt;
         self.fps_frames += 1;
@@ -189,6 +289,12 @@ impl Game {
             self.frame_ms = self.fps_acc * 1000.0 / self.fps_frames as f32;
             self.fps_acc = 0.0;
             self.fps_frames = 0;
+        }
+        let day_len = (settings.gameplay.day_length_minutes * 60.0).max(10.0);
+        self.day_time += dt as f64 / day_len;
+        if self.day_time >= 1.0 {
+            self.day_time -= 1.0;
+            self.day_count += 1;
         }
         for m in &mut self.messages {
             m.1 -= dt;
@@ -648,23 +754,40 @@ impl Game {
     pub fn globals(&self, settings: &Settings) -> Globals {
         let p = self.camera.pos;
         let rd = settings.graphics.render_distance as f32 * 16.0;
-        let sun = Vec3::new(0.35, 0.8, -0.45).normalize();
+        let sky = crate::sky::sky_state(self.day_time);
         let underwater = self.world.get_id(p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32) == id::WATER;
-        let horizon = srgb([0.72, 0.84, 0.98]);
-        let (fog_color, fog_start, fog_end) = if underwater {
-            (srgb([0.1, 0.25, 0.55]), 0.0, 24.0)
+        let in_lava = self.world.get_id(p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32) == id::LAVA;
+        let horizon = srgb(sky.sky_horizon);
+        // Туман приглушённее неба на закате, чтобы рельеф не «заливало» розовым.
+        let calm = crate::sky::sky_state(0.25).sky_horizon;
+        let fog_srgb = [
+            sky.sky_horizon[0] * 0.6 + calm[0] * 0.4 * sky.daylight,
+            sky.sky_horizon[1] * 0.6 + calm[1] * 0.4 * sky.daylight,
+            sky.sky_horizon[2] * 0.6 + calm[2] * 0.4 * sky.daylight,
+        ];
+        let fog_lin = srgb(fog_srgb);
+        // Туман в глубине пещер темнеет: смешиваем с чёрным по небесному свету у камеры.
+        let (cam_sky, _) = self.world.light(p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+        let cave = 1.0 - (cam_sky as f32 / 15.0);
+        let fog_base = [fog_lin[0] * (1.0 - cave * 0.85), fog_lin[1] * (1.0 - cave * 0.85), fog_lin[2] * (1.0 - cave * 0.85), 1.0];
+        let (fog_color, fog_start, fog_end) = if in_lava {
+            (srgb([0.9, 0.3, 0.05]), 0.0, 2.5)
+        } else if underwater {
+            let k = sky.daylight;
+            (srgb([0.08 * k, 0.22 * k, 0.5 * k]), 0.0, 22.0)
         } else {
-            (horizon, rd * 0.55, rd * 0.95)
+            (fog_base, rd * 0.55, rd * 0.95)
         };
+        let sl = srgb(sky.sky_light);
         Globals {
             cam_pos: [p.x as f32, p.y as f32, p.z as f32, self.time as f32],
             fog_color: [fog_color[0], fog_color[1], fog_color[2], fog_start],
-            params: [fog_end, 1.0, if underwater { 1.0 } else { 0.0 }, 0.015],
-            sun_dir: [sun.x, sun.y, sun.z, 0.3],
-            sky_top: srgb([0.35, 0.55, 0.95]),
+            params: [fog_end, sky.daylight, if underwater { 1.0 } else { 0.0 }, 0.012],
+            sun_dir: [sky.sun_dir.x, sky.sun_dir.y, sky.sun_dir.z, self.day_time as f32],
+            sky_top: srgb(sky.sky_top),
             sky_horizon: horizon,
-            block_light: [1.0, 0.8, 0.55, settings.graphics.brightness as f32],
-            sky_light: [1.0, 1.0, 1.0, 0.0],
+            block_light: [1.0, 0.78, 0.5, settings.graphics.brightness as f32],
+            sky_light: [sl[0], sl[1], sl[2], 0.0],
             ..Default::default()
         }
     }
@@ -742,6 +865,7 @@ impl Game {
             ui.rect(0.0, 0.0, ui.width, ui.height, [20, 60, 160, 70]);
         }
 
+        self.console.draw(ui, self.time);
         if self.show_debug {
             self.draw_debug(ui, renderer);
         }
@@ -769,7 +893,7 @@ impl Game {
             format!("Блок: {bx} {by} {bz}   Чанк: {} {} [{} {}]", cp.x, cp.z, bx & 15, bz & 15),
             format!("Взгляд: {facing}  (рыск {:.0}°, тангаж {:.0}°)", self.camera.yaw.to_degrees(), self.camera.pitch.to_degrees()),
             format!("Биом: {}", biome::get(self.world.biome_at(bx, bz)).name),
-            format!("Свет: небо {sky}, блоки {blk}"),
+            format!("Свет: небо {sky}, блоки {blk}   Время: {} (день {})", crate::sky::clock(self.day_time), self.day_count + 1),
             format!(
                 "Чанки: {} загружено, {} мешей, видно {}, квадов {}",
                 self.world.chunks.len(),

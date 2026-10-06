@@ -19,9 +19,9 @@ float light_curve(float l) {
     return mix(b, sqrt(l), g.block_light.w * 0.6);
 }
 
-vec3 apply_lighting(vec3 albedo, float sky, float blk) {
+vec3 apply_lighting(vec3 albedo, float sky, float blk, float flicker) {
     float s = light_curve(sky) * g.params.y;
-    float b = light_curve(blk);
+    float b = light_curve(blk) * flicker;
     vec3 light = max(vec3(s) * g.sky_light.rgb, vec3(b) * g.block_light.rgb);
     light = max(light, vec3(g.params.w));
     return albedo * light;

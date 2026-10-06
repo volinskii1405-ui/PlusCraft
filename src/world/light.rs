@@ -177,3 +177,60 @@ fn propagate(light: &mut [u8], cell: &[u8], queue: &mut VecDeque<(u16, u8, u16)>
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::block::{id, make};
+    use crate::world::chunk::{ChunkData, ChunkPos};
+    use std::sync::Arc;
+
+    /// Каменный монолит до y=100 с закрытой комнатой 5×3×5 внутри.
+    fn sealed_room(torch: bool) -> Neighborhood {
+        let mut chunks: [[Option<Arc<ChunkData>>; 3]; 3] = Default::default();
+        for row in chunks.iter_mut() {
+            for c in row.iter_mut() {
+                let mut d = ChunkData::empty();
+                for y in 0..100 {
+                    for z in 0..16 {
+                        for x in 0..16 {
+                            d.set(x, y, z, make(id::STONE, 0));
+                        }
+                    }
+                }
+                *c = Some(Arc::new(d));
+            }
+        }
+        let mut center = (*chunks[1][1].take().unwrap()).clone();
+        for y in 50..53 {
+            for z in 5..10 {
+                for x in 5..10 {
+                    center.set(x, y, z, 0);
+                }
+            }
+        }
+        if torch {
+            center.set(7, 50, 7, make(id::TORCH, 255));
+        }
+        chunks[1][1] = Some(Arc::new(center));
+        Neighborhood { center: ChunkPos::new(0, 0), chunks }
+    }
+
+    #[test]
+    fn sealed_room_is_dark_and_surface_lit() {
+        let nb = sealed_room(false);
+        let l = compute(&nb, 100);
+        assert_eq!(l.get(7, 51, 7), (0, 0), "в закрытой комнате нет неба");
+        assert_eq!(l.get(7, 100, 7).0, 15, "над землёй — полный небесный свет");
+    }
+
+    #[test]
+    fn torch_flood_fill() {
+        let nb = sealed_room(true);
+        let l = compute(&nb, 100);
+        assert_eq!(l.get(7, 50, 7).1, 14, "в клетке факела");
+        assert_eq!(l.get(8, 50, 7).1, 13, "соседняя клетка");
+        assert_eq!(l.get(9, 52, 9).1, 14 - 2 - 2 - 2, "угол комнаты (манхэттен 6)");
+        assert_eq!(l.get(7, 51, 7).0, 0, "небесного света нет");
+    }
+}

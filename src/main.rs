@@ -14,6 +14,7 @@ mod renderer;
 mod save;
 mod selftest;
 mod settings;
+mod sky;
 mod ui;
 mod world;
 
@@ -40,11 +41,13 @@ pub struct Options {
     /// Камера для тестовых скриншотов: x, y, z, yaw°, pitch°.
     pub camera: Option<[f64; 5]>,
     pub selftest: bool,
+    /// Консольные команды, выполняемые при старте (для тестов).
+    pub commands: Vec<String>,
 }
 
 fn parse_args() -> Result<Option<Options>> {
     let args: Vec<String> = std::env::args().collect();
-    let mut opts = Options { exit_after: None, seed: None, camera: None, selftest: false };
+    let mut opts = Options { exit_after: None, seed: None, camera: None, selftest: false, commands: Vec::new() };
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -74,6 +77,12 @@ fn parse_args() -> Result<Option<Options>> {
                 }
             }
             "--selftest" => opts.selftest = true,
+            "--cmd" => {
+                i += 1;
+                if let Some(c) = args.get(i) {
+                    opts.commands.push(c.clone());
+                }
+            }
             "--help" | "-h" => {
                 println!("pluscraft [--gen-assets] [--seed SEED] [--exit-after СЕКУНДЫ] [--selftest]");
                 return Ok(None);
@@ -122,6 +131,8 @@ struct State {
     start: Instant,
     exit_after: Option<f32>,
     selftest: Option<selftest::SelfTest>,
+    /// Стартовые команды (--cmd) — выполняются, когда мир вокруг загрузится.
+    pending_commands: Vec<String>,
 }
 
 impl State {
@@ -171,6 +182,7 @@ impl State {
             start: Instant::now(),
             exit_after: opts.exit_after,
             selftest: opts.selftest.then(selftest::SelfTest::new),
+            pending_commands: opts.commands.clone(),
         })
     }
 
@@ -199,7 +211,8 @@ impl State {
         let dt = (now - self.last_frame).as_secs_f32().min(0.25);
         self.last_frame = now;
 
-        if self.input.key_pressed(KeyCode::Escape) {
+        let console_open = self.game.as_ref().map(|g| g.console.open).unwrap_or(false);
+        if self.input.key_pressed(KeyCode::Escape) && !console_open {
             self.set_grab(false);
         }
         let dead = self.game.as_ref().map(|g| g.player.is_dead()).unwrap_or(false);
@@ -216,6 +229,12 @@ impl State {
         game.update(dt, &self.input, &self.settings, self.grabbed && !dead && self.selftest.is_none());
         if let Some(t) = self.selftest.as_mut() {
             t.update(game, dt);
+        }
+        if !self.pending_commands.is_empty() && game.world.chunks.len() >= 25 {
+            for c in std::mem::take(&mut self.pending_commands) {
+                let r = game.run_command(&c);
+                log::info!("{c}: {r}");
+            }
         }
         game.upload_meshes(&mut self.renderer);
         game.draw_hud(&mut ui, &self.renderer);

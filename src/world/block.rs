@@ -211,7 +211,7 @@ pub static BLOCKS: [BlockDef; id::COUNT] = [
         tex_side: Tex::Water,
         solid: false,
         opaque: false,
-        absorb: 2,
+        absorb: 1,
         hardness: -1.0,
         drop: Drop::Nothing,
         replaceable: true,
@@ -360,7 +360,7 @@ pub static BLOCKS: [BlockDef; id::COUNT] = [
         replaceable: true,
         ..BASE
     },
-    block!("Лёд", "ice", all(Tex::Ice), { layer: Layer::Translucent, opaque: false, absorb: 2, hardness: 0.5, tool: ToolKind::Pickaxe, drop: Drop::Nothing }),
+    block!("Лёд", "ice", all(Tex::Ice), { layer: Layer::Translucent, opaque: false, absorb: 1, hardness: 0.5, tool: ToolKind::Pickaxe, drop: Drop::Nothing }),
     block!("Глина", "clay", all(Tex::Clay), { hardness: 0.6, tool: ToolKind::Shovel }),
     block!("Медный блок", "copper_block", all(Tex::CopperBlock), { hardness: 4.0, tool: ToolKind::Pickaxe, min_tier: 2 }),
     block!("Железный блок", "iron_block", all(Tex::IronBlock), { hardness: 5.0, tool: ToolKind::Pickaxe, min_tier: 2 }),
