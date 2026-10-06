@@ -12,6 +12,8 @@ use crate::entities::mob::{MobEvent, MobKind};
 use crate::entities::spawn::{self, SpawnRules};
 use crate::entities::{self, Entities};
 use crate::input::InputState;
+use crate::mechanics::resonance::{self, Pulse};
+use crate::mechanics::Mechanics;
 use crate::inventory::{ItemStack, HOTBAR};
 use crate::item::{self, ItemKind};
 use crate::physics::{self, Aabb, RayHit};
@@ -81,6 +83,14 @@ pub struct Game {
     last_alpha: f64,
     /// Моб под прицелом (индекс в entities.mobs).
     pub target_mob: Option<usize>,
+    /// Уникальные механики: вода, обвалы, резонанс, топливо факелов.
+    pub mech: Mechanics,
+    /// Время горения факела (из настроек), с.
+    torch_burn: f32,
+    resonator_cooldown: f32,
+    /// Тряска камеры от обвалов.
+    shake: f32,
+    cave_ins_enabled: bool,
     fps: f32,
     fps_acc: f32,
     fps_frames: u32,
@@ -187,6 +197,11 @@ impl Game {
             spawn_timer: 0.0,
             last_alpha: 0.0,
             target_mob: None,
+            mech: Mechanics::default(),
+            torch_burn: (settings.gameplay.torch_burn_minutes * 60.0) as f32,
+            resonator_cooldown: 0.0,
+            shake: 0.0,
+            cave_ins_enabled: settings.gameplay.cave_ins,
             fps: 0.0,
             fps_acc: 0.0,
             fps_frames: 0,
@@ -269,6 +284,42 @@ impl Game {
                 "Вы погибли".into()
             }
             "seed" => format!("Seed: {}", self.world.seed),
+            "findcave" => {
+                // Отладка: ближайшая подземная полость, где можно стоять.
+                let c = self.player.pos.floor().as_ivec3();
+                let mut best: Option<(i32, IVec3)> = None;
+                for dy in -40..=10 {
+                    for dz in (-24..=24).step_by(2) {
+                        for dx in (-24..=24).step_by(2) {
+                            let p = c + IVec3::new(dx, dy, dz);
+                            if p.y < 8 || !crate::entities::path::standable(&self.world, p, 3) {
+                                continue;
+                            }
+                            if self.world.light(p.x, p.y + 1, p.z).0 > 0 {
+                                continue;
+                            }
+                            let d = dx * dx + dy * dy + dz * dz;
+                            if best.map(|b| d < b.0).unwrap_or(true) {
+                                best = Some((d, p));
+                            }
+                        }
+                    }
+                }
+                match best {
+                    Some((_, p)) => {
+                        self.player.pos = p.as_dvec3() + DVec3::new(0.5, 0.0, 0.5);
+                        self.player.prev_pos = self.player.pos;
+                        format!("Пещера: {} {} {}", p.x, p.y, p.z)
+                    }
+                    None => "Пещер поблизости не найдено".into(),
+                }
+            }
+            "pulse" => {
+                let r: f32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(18.0);
+                let o = self.player.eye_pos();
+                self.resonance_pulse(o, r.clamp(4.0, 32.0));
+                "Импульс".into()
+            }
             "summon" => {
                 let kind = match parts.get(1).copied() {
                     Some("grazer") => MobKind::Grazer,
@@ -334,6 +385,11 @@ impl Game {
                 let Some(b) = block::by_key(key) else { return format!("Нет блока «{key}»") };
                 let meta = if b == id::TORCH { 255 } else { 0 };
                 if self.world.set(v[0], v[1], v[2], block::make(b, meta)) {
+                    let p = IVec3::new(v[0], v[1], v[2]);
+                    if b == id::TORCH {
+                        self.mech.torches.place(p, self.torch_burn);
+                    }
+                    self.mech.water.notify(p);
                     format!("Блок {} установлен", def(b).name)
                 } else {
                     "Чанк не загружен".into()
@@ -454,6 +510,9 @@ impl Game {
                 dir -= self.camera.right_flat();
             }
             mv.dir = dir.normalize_or_zero();
+            if self.mech.darkness.active() && !self.player.creative() {
+                mv.dir *= 0.7; // страх темноты замедляет
+            }
             mv.jump = input.down(c, Action::Jump);
             mv.sneak = input.down(c, Action::Sneak);
             mv.sprint = input.down(c, Action::Sprint) && input.down(c, Action::Forward);
@@ -480,6 +539,7 @@ impl Game {
         self.pickup_items();
         self.tick_furnaces(dt);
         self.update_mobs(dt, settings, mob_events);
+        self.update_mechanics(dt, settings);
 
         // Камера: интерполяция между шагами физики, плавный присед.
         let alpha = self.accumulator / PHYSICS_DT;
@@ -487,6 +547,11 @@ impl Game {
         self.eye_smooth += (eye_target - self.eye_smooth) * (dt as f64 * 12.0).min(1.0);
         let pos = self.player.prev_pos.lerp(self.player.pos, alpha);
         self.camera.pos = pos + DVec3::new(0.0, self.eye_smooth, 0.0);
+        if self.shake > 0.0 {
+            let k = (self.shake * 0.08) as f64;
+            let t = self.time * 40.0;
+            self.camera.pos += DVec3::new(t.sin() * k, (t * 1.3).cos() * k, (t * 0.7).sin() * k);
+        }
         let fov_boost = if self.player.sprinting { 1.08 } else { 1.0 };
         let target_fov = settings.graphics.fov as f32 * fov_boost;
         self.camera.fov_deg += (target_fov - self.camera.fov_deg) * (dt * 8.0).min(1.0);
@@ -612,6 +677,7 @@ impl Game {
             }
         }
         self.after_block_removed(pos);
+        self.on_block_removed(pos, bid, survival);
     }
 
     /// Что выпадает из блока.
@@ -693,6 +759,10 @@ impl Game {
         let stack = self.player.inventory.selected_stack();
         let kind = stack.and_then(|s| item::def(s.item)).map(|d| d.kind);
 
+        if pressed && self.use_special_item(kind) {
+            return;
+        }
+
         // Еда — съесть.
         if let Some(ItemKind::Food { hunger }) = kind {
             if pressed && (self.player.hunger < player::MAX_HUNGER || self.player.creative()) {
@@ -720,6 +790,189 @@ impl Game {
             }
         }
         self.try_place(hit);
+    }
+
+    /// Особые предметы: уголь для факелов, резонатор, вёдра.
+    /// Возвращает true, если действие выполнено.
+    fn use_special_item(&mut self, kind: Option<ItemKind>) -> bool {
+        let stack = self.player.inventory.selected_stack();
+        let creative = self.player.creative();
+        // Уголь по факелу — дозаправка; по прогоревшему — зажечь снова.
+        if let (Some(st), Some(hit)) = (stack, self.target) {
+            if st.item == item::id::COAL || st.item == item::id::CHARCOAL {
+                let b = self.world.get_id(hit.pos.x, hit.pos.y, hit.pos.z);
+                if b == id::TORCH || b == id::BURNT_TORCH {
+                    if b == id::BURNT_TORCH {
+                        self.world.set(hit.pos.x, hit.pos.y, hit.pos.z, block::make(id::TORCH, 255));
+                        self.mech.torches.place(hit.pos, self.torch_burn);
+                        self.message("Факел снова горит");
+                    } else {
+                        self.mech.torches.refuel(hit.pos, self.torch_burn, self.torch_burn * 1.5);
+                        self.message("Факел дозаправлен");
+                    }
+                    if !creative {
+                        self.player.inventory.consume_selected();
+                    }
+                    self.hand_swing = 1.0;
+                    return true;
+                }
+            }
+        }
+        match kind {
+            Some(ItemKind::Resonator { .. }) => {
+                if self.resonator_cooldown > 0.0 {
+                    return true;
+                }
+                self.resonator_cooldown = 4.0;
+                let origin = self.player.eye_pos();
+                self.resonance_pulse(origin, 18.0);
+                if !creative && self.player.inventory.damage_selected(1) {
+                    self.message("Резонатор рассыпался");
+                }
+                self.hand_swing = 1.0;
+                true
+            }
+            Some(ItemKind::Bucket) => {
+                // Зачерпнуть источник воды.
+                let eye = self.player.eye_pos();
+                let pick = |v: u16| block_id(v) == id::WATER && block_meta(v) & 15 == 0;
+                if let Some(h) = physics::raycast(&self.world, eye, self.camera.forward(), self.reach(), |v| pick(v) || physics::pickable(v)) {
+                    if pick(self.world.get(h.pos.x, h.pos.y, h.pos.z)) {
+                        self.world.set(h.pos.x, h.pos.y, h.pos.z, 0);
+                        self.mech.water.notify(h.pos);
+                        let sel = self.player.inventory.selected;
+                        if creative {
+                            return true;
+                        }
+                        let s = &mut self.player.inventory.slots[sel];
+                        if let Some(st) = s {
+                            if st.count <= 1 {
+                                *s = Some(ItemStack::new(item::id::WATER_BUCKET, 1));
+                            } else {
+                                st.count -= 1;
+                                if let Some(rest) = self.player.inventory.add(ItemStack::new(item::id::WATER_BUCKET, 1)) {
+                                    self.throw_stack(rest);
+                                }
+                            }
+                        }
+                        return true;
+                    }
+                }
+                false
+            }
+            Some(ItemKind::WaterBucket) => {
+                let Some(hit) = self.target else { return false };
+                let t = hit.pos + hit.normal;
+                if !def(self.world.get_id(t.x, t.y, t.z)).replaceable {
+                    return false;
+                }
+                self.world.set(t.x, t.y, t.z, block::make(id::WATER, 0));
+                self.mech.water.notify(t);
+                if !creative {
+                    let sel = self.player.inventory.selected;
+                    self.player.inventory.slots[sel] = Some(ItemStack::new(item::id::BUCKET, 1));
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Эхо-импульс резонанса: подсветка пустот/руд, приманивание мобов.
+    pub fn resonance_pulse(&mut self, origin: DVec3, radius: f32) {
+        let pulse = Pulse::new(&self.world, origin, radius);
+        let voids = pulse.markers.iter().filter(|m| !m.ore).count();
+        let ores = pulse.markers.len() - voids;
+        self.mech.pulses.push(pulse);
+        let mut lured = 0;
+        for m in &mut self.entities.mobs {
+            if m.kind.hostile() && m.pos.distance(origin) < 36.0 {
+                m.lure_to(origin, 12.0);
+                lured += 1;
+            }
+        }
+        let mut text = format!("Резонанс: пустот {voids}, руд и жидкостей {ores}");
+        if lured > 0 {
+            text.push_str(&format!(" — эхо привлекло существ: {lured}"));
+        }
+        self.message(text);
+    }
+
+    /// Реакция механик на удаление блока игроком.
+    fn on_block_removed(&mut self, pos: IVec3, bid: u8, survival: bool) {
+        // Вода затекает в освободившееся место; будим воду рядом (прорывы).
+        self.mech.water.notify(pos);
+        self.mech.water.wake_area(&self.world, pos, 3);
+        if bid == id::TORCH {
+            self.mech.torches.remove(pos);
+        }
+        // Резонит отзывается на добычу рядом.
+        if bid == id::RESONITE_ORE {
+            self.resonance_pulse(pos.as_dvec3() + DVec3::splat(0.5), 14.0);
+        } else if survival {
+            if let Some(r) = resonance::resonite_near(&self.world, pos, 4) {
+                if self.mech.pulses.iter().all(|p| p.age > 3.0) {
+                    self.resonance_pulse(r.as_dvec3() + DVec3::splat(0.5), 10.0);
+                }
+            }
+        }
+        // Нестабильная порода.
+        if self.cave_ins_enabled && self.mech.caveins.on_block_removed(&self.world, pos, &mut self.rng) {
+            self.message("Порода трещит над головой! Поставьте крепь или отойдите.");
+            self.shake = self.shake.max(0.3);
+        }
+    }
+
+    /// Тики механик: вода, обвалы, факелы, импульсы, темнота.
+    fn update_mechanics(&mut self, dt: f32, settings: &Settings) {
+        self.cave_ins_enabled = settings.gameplay.cave_ins;
+        self.torch_burn = (settings.gameplay.torch_burn_minutes * 60.0) as f32;
+        self.resonator_cooldown = (self.resonator_cooldown - dt).max(0.0);
+        self.shake = (self.shake - dt).max(0.0);
+        self.mech.tick_acc += dt;
+        let mut ticks = 0;
+        while self.mech.tick_acc >= 0.05 && ticks < 4 {
+            self.mech.tick_acc -= 0.05;
+            ticks += 1;
+            self.mech.water.tick(&mut self.world, &mut self.rng);
+            if let Some(c) = self.mech.caveins.tick(&mut self.world, 0.05, &mut self.rng) {
+                self.shake = 0.8;
+                let pb = self.player.aabb();
+                for (base, n) in c.columns {
+                    for i in 0..n {
+                        let cell = Aabb::block(base.x, base.y + i, base.z);
+                        if cell.intersects(&pb) {
+                            self.player.damage(4.0);
+                            self.message("Вас придавило обвалом!");
+                        }
+                    }
+                    self.mech.water.notify(base);
+                }
+                self.message("Обвал!");
+            }
+        }
+        if ticks == 4 {
+            self.mech.tick_acc = 0.0;
+        }
+        let snuffed = self.mech.torches.tick(&mut self.world, dt);
+        if snuffed > 0 && self.player.pos.y < 60.0 {
+            self.message(format!("Погас факел ({snuffed})"));
+        }
+        for p in &mut self.mech.pulses {
+            p.age += dt;
+        }
+        self.mech.pulses.retain(|p| p.age < resonance::PULSE_TIME);
+
+        // Страх темноты: свет у глаз с учётом времени суток.
+        let e = self.player.eye_pos();
+        let daylight = crate::sky::sky_state(self.day_time).daylight;
+        let light = spawn::effective_light(&self.world, e.x.floor() as i32, e.y.floor() as i32, e.z.floor() as i32, daylight);
+        if !self.player.creative() && self.mech.darkness.update(light, dt) {
+            self.message("Абсолютная тьма давит на вас… (замедление, голод)");
+        }
+        if self.mech.darkness.active() && !self.player.creative() {
+            self.player.add_exhaustion(dt * 0.08);
+        }
     }
 
     /// ИИ, спавн, деспавн, смерть мобов и их воздействие на игрока.
@@ -922,6 +1175,10 @@ impl Game {
             return false;
         }
         if self.world.set(target.x, target.y, target.z, block::make(b, meta)) {
+            if b == id::TORCH {
+                self.mech.torches.place(target, self.torch_burn);
+            }
+            self.mech.water.notify(target);
             if !self.player.creative() {
                 self.player.inventory.consume_selected();
             }
@@ -1101,6 +1358,11 @@ impl Game {
             }
         }
 
+        // Эхо резонанса: маркеры пустот и руд видны сквозь породу.
+        for p in &self.mech.pulses {
+            p.build_mesh(cam, &mut g.overlay);
+        }
+
         // Предмет в руке (рисуется поверх мира после очистки глубины).
         if !self.player.is_dead() {
             let p = self.player.pos;
@@ -1157,6 +1419,35 @@ impl Game {
             y -= ui.line_height(0.9);
         }
 
+        // Топливо факела под прицелом.
+        if let Some(hit) = self.target {
+            if self.world.get_id(hit.pos.x, hit.pos.y, hit.pos.z) == id::TORCH {
+                let s = ui.scale;
+                let text = match self.mech.torches.get(hit.pos) {
+                    Some(t) => format!("Факел: топливо {:.0}% (~{:.0} с) — ПКМ углём, чтобы дозаправить", t / self.torch_burn * 100.0, t),
+                    None => "Факел (вечный)".to_string(),
+                };
+                ui.text_centered(ui.width / 2.0, ui.height / 2.0 + 16.0 * s, &text, 0.8, [255, 220, 150, 255]);
+            }
+        }
+        // Страх темноты — затемнение краёв экрана.
+        if self.mech.darkness.active() && !self.player.creative() {
+            let k = ((self.mech.darkness.time - crate::mechanics::torches::Darkness::ONSET) / 3.0).clamp(0.0, 1.0);
+            for i in 0..8 {
+                let f = i as f32 / 8.0;
+                let inset = f * ui.width.min(ui.height) * 0.35;
+                let a = (k * 40.0 * (1.0 - f)) as u8;
+                ui.frame(inset, inset, ui.width - 2.0 * inset, ui.height - 2.0 * inset, ui.width.min(ui.height) * 0.05, [0, 0, 0, a]);
+            }
+        }
+        if self.mech.caveins.danger_near(self.player.pos) {
+            let s = ui.scale;
+            let blink = ((self.time * 6.0) as i64 % 2) == 0;
+            if blink {
+                ui.text_centered(ui.width / 2.0, 60.0 * s, "⚠ Свод неустойчив!", 1.1, [255, 190, 80, 255]);
+            }
+        }
+
         // Эффект урона — красная вспышка.
         if self.player.hurt_timer > 0.0 {
             let a = (self.player.hurt_timer / 0.4 * 90.0) as u8;
@@ -1208,6 +1499,15 @@ impl Game {
                 self.entities.items.len(),
                 self.entities.mobs.len(),
                 self.entities.mobs.iter().filter(|m| m.kind.hostile()).count()
+            ),
+            format!(
+                "Механики: вода в очереди {}, прорывов {}, угроз обвала {}, обвалов {}, факелов горит {}, тьма {:.1} с",
+                self.mech.water.pending(),
+                self.mech.water.breakthroughs,
+                self.mech.caveins.pending.len(),
+                self.mech.caveins.total,
+                self.mech.torches.map.len(),
+                self.mech.darkness.time
             ),
             format!("Seed: {}", self.world.seed),
             format!("GPU: {}", renderer.device_name()),

@@ -17,12 +17,13 @@ pub struct SelfTest {
     pub results: Vec<(String, bool, String)>,
     expect_item: u16,
     ground_y: f64,
+    hall: IVec3,
     pub done: bool,
 }
 
 impl SelfTest {
     pub fn new() -> Self {
-        Self { phase: 0, timer: 0.0, results: Vec::new(), expect_item: 0, ground_y: 0.0, done: false }
+        Self { phase: 0, timer: 0.0, results: Vec::new(), expect_item: 0, ground_y: 0.0, hall: IVec3::ZERO, done: false }
     }
 
     fn check(&mut self, name: &str, ok: bool, info: String) {
@@ -365,6 +366,104 @@ impl SelfTest {
                     self.next();
                 } else if self.timer > 30.0 {
                     self.check("night_spawn", false, "за 30 с ночью никто не появился".into());
+                    self.next();
+                }
+            }
+            // --- Уникальные механики в живом мире ---
+            // Подземный зал 9×3×9 в каменной оболочке: обвал без крепи.
+            22 => {
+                game.day_time = 0.25;
+                game.entities.mobs.clear();
+                let f = Self::feet(game);
+                let c = IVec3::new(f.x, (f.y - 30).max(20), f.z);
+                self.hall = c;
+                game.run_command(&format!("/fill {} {} {} {} {} {} stone", c.x - 7, c.y - 2, c.z - 7, c.x + 7, c.y + 5, c.z + 7));
+                game.run_command(&format!("/fill {} {} {} {} {} {} air", c.x - 4, c.y, c.z - 4, c.x + 4, c.y + 2, c.z + 4));
+                game.player.mode = GameMode::Survival;
+                game.player.health = 20.0;
+                game.player.pos = DVec3::new(c.x as f64 + 3.5, c.y as f64, c.z as f64 + 3.5);
+                game.player.prev_pos = game.player.pos;
+                game.player.vel = DVec3::ZERO;
+                self.next();
+            }
+            23 => {
+                if self.timer > 1.5 {
+                    let c = self.hall;
+                    // Добываем блок свода в центре зала.
+                    game.break_block(c + IVec3::new(0, 3, 0), true);
+                    self.expect_item = game.mech.caveins.total as u16;
+                    self.next();
+                }
+            }
+            24 => {
+                if self.timer > 5.0 {
+                    let total = game.mech.caveins.total;
+                    self.check("cave_in", total > self.expect_item as u32, format!("обвалов: {total}"));
+                    self.next();
+                }
+            }
+            // Тот же зал с крепью — свод держится.
+            25 => {
+                let c = self.hall;
+                game.run_command(&format!("/fill {} {} {} {} {} {} stone", c.x - 7, c.y - 2, c.z - 7, c.x + 7, c.y + 5, c.z + 7));
+                game.run_command(&format!("/fill {} {} {} {} {} {} air", c.x - 4, c.y, c.z - 4, c.x + 4, c.y + 2, c.z + 4));
+                for y in 0..3 {
+                    game.world.set(c.x + 1, c.y + y, c.z + 1, block::make(id::SUPPORT, 0));
+                }
+                game.mech.caveins.pending.clear();
+                self.expect_item = game.mech.caveins.total as u16;
+                game.break_block(c + IVec3::new(0, 3, 0), true);
+                let pending = game.mech.caveins.pending.len();
+                self.check("support_holds", pending == 0, format!("угроз обвала при крепи: {pending}"));
+                self.next();
+            }
+            // Резонанс: добыча рядом с резонитом вызывает эхо-импульс.
+            26 => {
+                let c = self.hall;
+                game.mech.pulses.clear();
+                game.world.set(c.x - 5, c.y + 1, c.z, block::make(id::RESONITE_ORE, 0));
+                game.break_block(IVec3::new(c.x - 5, c.y + 1, c.z + 1), true);
+                let markers = game.mech.pulses.first().map(|p| p.markers.len()).unwrap_or(0);
+                self.check("resonance_pulse", !game.mech.pulses.is_empty() && markers > 0, format!("импульсов {}, маркеров {markers}", game.mech.pulses.len()));
+                self.next();
+            }
+            // Вода растекается по полу зала.
+            27 => {
+                let c = self.hall;
+                game.world.set(c.x - 3, c.y, c.z - 3, block::make(id::WATER, 0));
+                game.mech.water.notify(IVec3::new(c.x - 3, c.y, c.z - 3));
+                self.next();
+            }
+            28 => {
+                if self.timer > 3.0 {
+                    let c = self.hall;
+                    let n = (0..4).filter(|i| game.world.get_id(c.x - 3 + i, c.y, c.z - 3) == id::WATER).count();
+                    self.check("water_flow", n >= 3, format!("клеток воды в ряду: {n}/4"));
+                    self.next();
+                }
+            }
+            // Полная темнота в закрытом зале — дебафф.
+            29 => {
+                if self.timer > 6.5 {
+                    let d = game.mech.darkness.time;
+                    self.check("darkness_debuff", game.mech.darkness.active(), format!("в темноте {d:.1} с"));
+                    self.next();
+                }
+            }
+            // Факел с малым запасом топлива гаснет.
+            30 => {
+                let c = self.hall;
+                let p = c + IVec3::new(2, 0, -2);
+                game.world.set(p.x, p.y, p.z, block::make(id::TORCH, 255));
+                game.mech.torches.place(p, 1.0);
+                self.next();
+            }
+            31 => {
+                if self.timer > 2.5 {
+                    let c = self.hall;
+                    let p = c + IVec3::new(2, 0, -2);
+                    let b = game.world.get_id(p.x, p.y, p.z);
+                    self.check("torch_burnout", b == id::BURNT_TORCH, format!("блок: {}", block::def(b).name));
                     self.next();
                 }
             }

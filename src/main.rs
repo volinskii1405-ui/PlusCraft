@@ -9,6 +9,7 @@ mod game;
 mod input;
 mod inventory;
 mod item;
+mod mechanics;
 mod paths;
 mod physics;
 mod player;
@@ -237,10 +238,22 @@ impl State {
             t.update(game, dt);
         }
         if !self.pending_commands.is_empty() && game.world.chunks.len() >= 25 {
+            // Формат «@5 /команда» — выполнить через 5 с после старта.
+            let elapsed = self.start.elapsed().as_secs_f32();
+            let mut keep = Vec::new();
             for c in std::mem::take(&mut self.pending_commands) {
-                let r = game.run_command(&c);
-                log::info!("{c}: {r}");
+                let (delay, cmd) = match c.strip_prefix('@').and_then(|r| r.split_once(' ')) {
+                    Some((d, rest)) => (d.parse::<f32>().unwrap_or(0.0), rest.to_string()),
+                    None => (0.0, c.clone()),
+                };
+                if elapsed >= delay {
+                    let r = game.run_command(&cmd);
+                    log::info!("{cmd}: {r}");
+                } else {
+                    keep.push(c);
+                }
             }
+            self.pending_commands = keep;
         }
         game.upload_meshes(&mut self.renderer);
         game.draw_hud(&mut ui, &self.renderer);

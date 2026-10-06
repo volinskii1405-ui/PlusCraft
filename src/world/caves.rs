@@ -12,6 +12,7 @@ pub struct Caves {
     tunnel_b: Simplex,
     cavern: Simplex,
     entrance: Simplex,
+    aquifer: Simplex,
 }
 
 /// Уровень, ниже которого полости заполняются лавой.
@@ -20,7 +21,7 @@ pub const LAVA_LEVEL: i32 = 10;
 impl Caves {
     pub fn new(seed: u64) -> Self {
         let s = |k: u64| Simplex::new(seed ^ k.wrapping_mul(0x9E37_79B9_7F4A_7C15));
-        Self { seed, tunnel_a: s(101), tunnel_b: s(102), cavern: s(103), entrance: s(104) }
+        Self { seed, tunnel_a: s(101), tunnel_b: s(102), cavern: s(103), entrance: s(104), aquifer: s(105) }
     }
 
     /// Есть ли шумовая пещера в точке (без червяков — они не чистая функция точки).
@@ -94,7 +95,18 @@ impl Caves {
                     if above == id::WATER || above == id::ICE {
                         continue;
                     }
-                    let fill = if (y as i32) <= LAVA_LEVEL { make(id::LAVA, 0) } else { 0 };
+                    // Подземные водоносные слои: полости ниже «зеркала» воды
+                    // в отдельных областях затоплены (их можно вскрыть шахтой).
+                    let (wx, wz) = (pos.x * 16 + x as i32, pos.z * 16 + z as i32);
+                    let aq = self.aquifer.noise2(wx as f32 / 90.0, wz as f32 / 90.0);
+                    let table = 22 + (aq * 18.0) as i32;
+                    let fill = if (y as i32) <= LAVA_LEVEL {
+                        make(id::LAVA, 0)
+                    } else if aq > 0.45 && (y as i32) <= table {
+                        make(id::WATER, 0)
+                    } else {
+                        0
+                    };
                     c.set(x, y, z, fill);
                     // Трава под открытым небом над вскрытой землёй: если сверху
                     // выкопали, нижний блок земли становится травой (для красоты входов).
